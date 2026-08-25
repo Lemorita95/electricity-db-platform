@@ -1,0 +1,44 @@
+services:
+  migrate:
+    image: electricity-data-manager:latest
+    pull_policy: never
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+      POSTGRES_DB: ${POSTGRES_DB}
+      DB_HOST: db
+      DB_PORT: 5432
+      MANAGER_USER: ${MANAGER_USER}
+      MANAGER_PASSWORD: ${MANAGER_PASSWORD}
+      READONLY_USER: ${READONLY_USER}
+      READONLY_PASSWORD: ${READONLY_PASSWORD}
+    entrypoint: ["alembic", "upgrade", "head"]
+    networks:
+      - electricity-network
+
+  app:
+    build: .
+    image: electricity-data-manager:latest
+    environment:
+      MANAGER_USER: ${MANAGER_USER}
+      MANAGER_PASSWORD: ${MANAGER_PASSWORD}
+      POSTGRES_DB: ${POSTGRES_DB}
+      DB_HOST: db
+      DB_PORT: 5432
+      CDS_API_URL: ${CDS_API_URL}
+      CDS_API_KEY: ${CDS_API_KEY}
+      ENTSOE_BASE_URL: ${ENTSOE_BASE_URL}
+      ENTSOE_API_KEY: ${ENTSOE_API_KEY}
+      EUMDAC_CONSUMER_KEY: ${EUMDAC_CONSUMER_KEY}
+      EUMDAC_CONSUMER_SECRET: ${EUMDAC_CONSUMER_SECRET}
+    ports:
+      - "8000:8000"
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
+    networks:
+      - electricity-network
+
+networks:
+  electricity-network:
+    external: true

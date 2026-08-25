@@ -1,0 +1,9 @@
+from sqlmodel import SQLModel
+from master.db.connection import engine
+import master.db.models
+
+def init_db():
+    SQLModel.metadata.create_all(engine)
+
+if __name__ == '__main__':
+    init_db()
