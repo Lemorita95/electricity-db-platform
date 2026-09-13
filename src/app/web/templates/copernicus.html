@@ -1,0 +1,384 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>electricity_db · copernicus</title>
+<script src="https://cdn.jsdelivr.net/npm/plotly.js-dist@2.27.0/plotly.min.js"></script>
+<link rel="stylesheet" href="/static/style.css">
+</head>
+
+<body>
+
+<header>
+  <h1>electricity_db</h1>
+  <span class="subtitle">weather</span>
+
+  <div class="spacer"></div>
+
+  <div class="rate-status">
+    <div class="rate-item">
+      <span class="rate-label">COPERNICUS</span>
+      <span class="rate-value" id="copernicus-rate">—</span>
+      <span>req/min</span>
+    </div>
+  </div>
+</header>
+
+<nav class="pages">
+  <a href="/">overview</a>
+  <a href="/entsoe">entso-e</a>
+  <a href="/copernicus" class="active">copernicus</a>
+  <a href="/generation_units">generation units</a>
+</nav>
+
+<div class="controls">
+  <div class="field field-fixed">
+    <label>Zone</label>
+    <select id="zone-select">
+      {% for zone in zones %}
+      <option value="{{ zone }}">{{ zone }}</option>
+      {% endfor %}
+    </select>
+  </div>
+
+  <div class="field">
+    <label>Start</label>
+    <input type="datetime-local" id="start-input">
+  </div>
+
+  <div class="field">
+    <label>End</label>
+    <input type="datetime-local" id="end-input">
+  </div>
+
+  <button class="btn btn-fetch" id="fetch-btn">Fetch</button>
+</div>
+
+<div class="error-msg" id="error-msg"></div>
+
+<div class="charts">
+
+  <div class="chart-card">
+    <div class="chart-header">
+      <div class="chart-header-left">
+        <span class="chart-title">Weather</span>
+
+        <select class="weather-select" id="weather-col">
+          {% for col in weather_columns %}
+          <option value="{{ col }}">{{ col }}</option>
+          {% endfor %}
+        </select>
+      </div>
+
+      <button class="btn" id="sync-weather-btn">↻ sync</button>
+    </div>
+
+    <div class="chart-container" id="weather-chart">
+      <div class="status">select a zone and date range</div>
+    </div>
+  </div>
+
+</div>
+
+<script>
+  const COLORS = {
+    weather: '#C49EE0'
+  };
+
+  const layout = (unit) => ({
+    paper_bgcolor: 'transparent',
+    plot_bgcolor: 'transparent',
+    font: {
+      family: 'IBM Plex Mono, monospace',
+      size: 11,
+      color: '#666'
+    },
+    margin: {
+      t: 10,
+      r: 20,
+      b: 40,
+      l: 60
+    },
+    xaxis: {
+      gridcolor: '#222',
+      linecolor: '#2a2a2a',
+      tickformat: '%d/%m/%y %H:%M',
+      rangeslider: {
+        visible: true,
+        bgcolor: '#141414',
+        bordercolor: '#2a2a2a',
+        thickness: 0.08
+      }
+    },
+    yaxis: {
+      gridcolor: '#222',
+      linecolor: '#2a2a2a',
+      title: {
+        text: unit,
+        font: { size: 10 }
+      }
+    },
+    showlegend: false
+  });
+
+  const config = {
+    displayModeBar: false,
+    responsive: true
+  };
+
+  function setDefaults() {
+    const end = new Date();
+    end.setMinutes(0, 0, 0);
+
+    const start = new Date(end);
+    start.setDate(start.getDate() - 7);
+
+    document.getElementById('start-input').value =
+      start.toISOString().slice(0, 16);
+
+    document.getElementById('end-input').value =
+      end.toISOString().slice(0, 16);
+  }
+
+  function showError(msg) {
+    const el = document.getElementById('error-msg');
+    el.textContent = msg;
+    el.style.display = 'block';
+  }
+
+  function clearError() {
+    document.getElementById('error-msg').style.display = 'none';
+  }
+
+  function clearRates() {
+    document.getElementById('copernicus-rate').textContent = '—';
+  }
+
+  function updateRates(status) {
+    const copernicusRate = document.getElementById('copernicus-rate');
+
+    if (!status.rates) {
+      clearRates();
+      return;
+    }
+
+    copernicusRate.textContent = status.rates.copernicus ?? '—';
+  }
+
+  async function fetchData() {
+    clearError();
+
+    const zone = document.getElementById('zone-select').value;
+    const start = document.getElementById('start-input').value;
+    const end = document.getElementById('end-input').value;
+    const col = document.getElementById('weather-col').value;
+    const btn = document.getElementById('fetch-btn');
+
+    if (!start || !end) {
+      showError('please select a date range');
+      return;
+    }
+
+    if (new Date(end) <= new Date(start)) {
+      showError('end must be after start');
+      return;
+    }
+
+    btn.disabled = true;
+    btn.textContent = 'loading...';
+
+    const params = new URLSearchParams({
+      zone,
+      start: new Date(start).toISOString(),
+      end: new Date(end).toISOString(),
+      column: col
+    });
+
+    try {
+      const weatherRes = await fetch(`/api/weather?${params}`);
+
+      if (!weatherRes.ok) {
+        showError((await weatherRes.json()).detail || 'weather fetch failed');
+        return;
+      }
+
+      const weatherData = await weatherRes.json();
+
+      const xMin = new Date(start).toISOString();
+      const xMax = new Date(end).toISOString();
+      const sharedRange = [xMin, xMax];
+
+      const sharedLayout = (unit, range) => ({
+        ...layout(unit),
+        xaxis: {
+          ...layout(unit).xaxis,
+          range: range,
+          autorange: false
+        }
+      });
+
+      const trace = (data, xKey, yKey, color) => {
+        const d = Array.isArray(data) ? data : [];
+
+        return [{
+          x: d.map(v => v[xKey]),
+          y: d.map(v => v[yKey]),
+          type: 'scatter',
+          mode: 'lines',
+          line: {
+            color,
+            width: 1.5
+          }
+        }];
+      };
+
+      Plotly.react(
+        'weather-chart',
+        trace(weatherData, 'timestamp', 'value', COLORS.weather),
+        sharedLayout(col, sharedRange),
+        config
+      );
+
+    } finally {
+      btn.disabled = false;
+      btn.textContent = 'Fetch';
+    }
+  }
+
+  document.getElementById('weather-col').addEventListener('change', () => {
+    const zone = document.getElementById('zone-select').value;
+    const start = document.getElementById('start-input').value;
+    const end = document.getElementById('end-input').value;
+    const col = document.getElementById('weather-col').value;
+
+    if (!start || !end) return;
+
+    const params = new URLSearchParams({
+      zone,
+      start: new Date(start).toISOString(),
+      end: new Date(end).toISOString(),
+      column: col
+    });
+
+    fetch(`/api/weather?${params}`)
+      .then(r => r.json())
+      .then(data => {
+        Plotly.react(
+          'weather-chart',
+          [{
+            x: data.map(d => d.timestamp),
+            y: data.map(d => d.value),
+            type: 'scatter',
+            mode: 'lines',
+            line: {
+              color: COLORS.weather,
+              width: 1.5
+            }
+          }],
+          layout(col),
+          config
+        );
+      });
+  });
+
+  const syncBtns = {
+    copernicus: document.getElementById('sync-weather-btn'),
+  };
+
+  let pollInterval = null;
+
+  async function triggerFetch(source) {
+    const key = source;
+    const btn = syncBtns[key];
+
+    const start = document.getElementById('start-input').value;
+    const end = document.getElementById('end-input').value;
+
+    clearRates();
+
+    btn.disabled = true;
+    btn.classList.add('running');
+    btn.textContent = '↻ running...';
+
+    try {
+      const params = new URLSearchParams();
+      params.append('source', source);
+
+      if (start) {
+        params.append('start', new Date(start).toISOString());
+      }
+
+      if (end) {
+        params.append('end', new Date(end).toISOString());
+      }
+
+      const res = await fetch(`/api/fetch?${params}`, { method: 'POST' });
+
+      if (!res.ok) {
+        showError((await res.json()).detail || 'fetch failed');
+        btn.disabled = false;
+        btn.classList.remove('running');
+        btn.textContent = '↻ sync';
+        return;
+      }
+
+      if (pollInterval) {
+        clearInterval(pollInterval);
+      }
+
+      pollInterval = setInterval(async () => {
+        try {
+          const res = await fetch('/api/fetch/status');
+          if (!res.ok) return;
+
+          const status = await res.json();
+          updateRates(status);
+
+          const job = status[key];
+          if (!job) return;
+
+          if (job.status === 'done' || job.status === 'failed') {
+            clearInterval(pollInterval);
+            pollInterval = null;
+
+            clearRates();
+
+            btn.disabled = false;
+            btn.classList.remove('running');
+            btn.textContent = '↻ sync';
+
+            if (job.status === 'failed') {
+              console.error(job.error);
+              showError(job.error || 'fetch failed');
+            }
+          }
+        } catch (e) {
+          console.error('status polling failed:', e);
+        }
+      }, 2000);
+
+    } catch (e) {
+      showError('network error: ' + e.message);
+
+      if (pollInterval) {
+        clearInterval(pollInterval);
+        pollInterval = null;
+      }
+
+      clearRates();
+
+      btn.disabled = false;
+      btn.classList.remove('running');
+      btn.textContent = '↻ sync';
+    }
+  }
+
+  document.getElementById('fetch-btn').addEventListener('click', fetchData);
+  document.getElementById('sync-weather-btn').addEventListener('click', () => triggerFetch('copernicus'));
+
+  setDefaults();
+</script>
+
+</body>
+</html>

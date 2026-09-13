@@ -1,0 +1,216 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>electricity_db · generation units</title>
+<link rel="stylesheet" href="/static/style.css">
+</head>
+
+<body>
+
+<header>
+  <h1>electricity_db</h1>
+  <span class="subtitle">generation units</span>
+
+  <div class="spacer"></div>
+
+  <div class="rate-status">
+    <div class="rate-item">
+      <span class="rate-label">ENTSO-E</span>
+      <span class="rate-value" id="entsoe-rate">—</span>
+      <span>req/min</span>
+    </div>
+  </div>
+</header>
+
+<nav class="pages">
+  <a href="/">overview</a>
+  <a href="/entsoe">entso-e</a>
+  <a href="/copernicus">copernicus</a>
+  <a href="/generation_units" class="active">generation units</a>
+</nav>
+
+<div class="controls">
+  <div class="field field-fixed">
+    <label>Zone</label>
+    <select id="zone-select">
+      {% for zone in zones %}
+      <option value="{{ zone }}">{{ zone }}</option>
+      {% endfor %}
+    </select>
+  </div>
+
+  <div class="field">
+    <label>As of</label>
+    <input type="date" id="as-of-input">
+  </div>
+
+  <button class="btn btn-fetch" id="fetch-btn">Fetch</button>
+</div>
+
+<div class="error-msg" id="error-msg"></div>
+
+<div class="charts">
+  <div class="chart-card">
+    <div class="chart-header">
+      <div class="chart-header-left">
+        <span class="chart-title">Production Resources</span>
+        <span class="chart-unit" id="results-count"></span>
+      </div>
+      <button class="btn" id="sync-btn">↻ sync</button>
+    </div>
+
+    <div class="chart-container chart-container-auto" id="resource-list">
+      <div class="status">select a zone and date range</div>
+    </div>
+  </div>
+</div>
+
+<script>
+  function setDefault() {
+    const today = new Date();
+    document.getElementById('as-of-input').value = today.toISOString().slice(0, 10);
+  }
+
+  function showError(msg) {
+    const el = document.getElementById('error-msg');
+    el.textContent = msg;
+    el.style.display = 'block';
+  }
+
+  function clearError() {
+    document.getElementById('error-msg').style.display = 'none';
+  }
+
+  function clearRate() {
+    document.getElementById('entsoe-rate').textContent = '—';
+  }
+
+  function updateRate(status) {
+    document.getElementById('entsoe-rate').textContent = status.rates?.entsoe ?? '—';
+  }
+
+  function escapeHtml(s) {
+    return String(s).replace(/[&<>"']/g, c => ({
+      '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;'
+    }[c]));
+  }
+
+  function renderResource(r) {
+    const unitRows = r.units.map(u => `
+      <div class="unit-row">
+        <span class="unit-name">${escapeHtml(u.name)}</span>
+        <span class="unit-meta">${escapeHtml(u.psr_type)} · ${u.nominal_p_mw ?? '—'} MW</span>
+      </div>
+    `).join('');
+
+    return `
+      <div class="resource-card">
+        <div class="resource-card-header">
+          <span class="resource-name">${escapeHtml(r.resource_name)}</span>
+          <span class="resource-meta">${escapeHtml(r.psr_type)} · ${r.nominal_p_mw ?? '—'} MW · as of ${r.implementation_date}</span>
+        </div>
+        ${unitRows || '<div class="unit-row"><span class="unit-meta">no units</span></div>'}
+      </div>
+    `;
+  }
+
+  async function fetchData() {
+    clearError();
+    const zone = document.getElementById('zone-select').value;
+    const asOf = document.getElementById('as-of-input').value;
+    const btn = document.getElementById('fetch-btn');
+    const list = document.getElementById('resource-list');
+    const count = document.getElementById('results-count');
+
+    if (!asOf) {
+      showError('please select a date');
+      return;
+    }
+
+    btn.disabled = true;
+    btn.textContent = 'loading...';
+
+    try {
+      const params = new URLSearchParams({ zone, as_of: asOf });
+      const res = await fetch(`/api/generation_units?${params}`);
+      if (!res.ok) {
+        showError((await res.json()).detail || 'fetch failed');
+        return;
+      }
+      const resources = await res.json();
+      count.textContent = resources.length ? `${resources.length} resource${resources.length === 1 ? '' : 's'}` : '';
+      list.innerHTML = resources.length
+        ? `<div class="resource-grid">${resources.map(renderResource).join('')}</div>`
+        : '<div class="status">no resources for this zone/date -- try syncing first</div>';
+    } finally {
+      btn.disabled = false;
+      btn.textContent = 'Fetch';
+    }
+  }
+
+  let pollInterval = null;
+
+  async function triggerSync() {
+    const btn = document.getElementById('sync-btn');
+    const asOf = document.getElementById('as-of-input').value;
+
+    clearRate();
+    btn.disabled = true;
+    btn.classList.add('running');
+    btn.textContent = '↻ running...';
+
+    try {
+      const params = new URLSearchParams({ source: 'generation_units' });
+      if (asOf) params.append('start', asOf);
+
+      const res = await fetch(`/api/fetch?${params}`, { method: 'POST' });
+      if (!res.ok) {
+        showError((await res.json()).detail || 'fetch failed');
+        btn.disabled = false;
+        btn.classList.remove('running');
+        btn.textContent = '↻ sync';
+        return;
+      }
+
+      if (pollInterval) clearInterval(pollInterval);
+      pollInterval = setInterval(async () => {
+        try {
+          const res = await fetch('/api/fetch/status');
+          if (!res.ok) return;
+          const status = await res.json();
+          updateRate(status);
+
+          const job = status['generation_units'];
+          if (!job) return;
+
+          if (job.status === 'done' || job.status === 'failed') {
+            clearInterval(pollInterval);
+            pollInterval = null;
+            clearRate();
+            btn.disabled = false;
+            btn.classList.remove('running');
+            btn.textContent = '↻ sync';
+            if (job.status === 'failed') showError(job.error || 'fetch failed');
+          }
+        } catch (e) {
+          console.error('status polling failed:', e);
+        }
+      }, 2000);
+    } catch (e) {
+      showError('network error: ' + e.message);
+      btn.disabled = false;
+      btn.classList.remove('running');
+      btn.textContent = '↻ sync';
+    }
+  }
+
+  document.getElementById('fetch-btn').addEventListener('click', fetchData);
+  document.getElementById('sync-btn').addEventListener('click', triggerSync);
+
+  setDefault();
+</script>
+
+</body>
+</html>

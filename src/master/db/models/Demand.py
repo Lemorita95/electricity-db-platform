@@ -6,6 +6,11 @@ from sqlalchemy.dialects.postgresql import TIMESTAMP
 
 
 class Demand(SQLModel, table=True):
+    '''
+    From API's Load / 6.1.A Actual Total Load
+    '''
+    __tablename__ = "demand"
+
     id: Optional[int] = Field(default=None, primary_key=True)
     zone: str
     timestamp: datetime = Field(sa_column=Column(TIMESTAMP(timezone=True), nullable=False))

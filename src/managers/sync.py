@@ -2,27 +2,29 @@ from datetime import datetime, timezone, timedelta
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from sqlmodel import Session, SQLModel
 from dataclasses import dataclass
-from typing import Callable, Type
+from typing import Callable, Type, Literal
 
 from master.db.connection import engine
-from master.db.queries import upsert, get_timestamps
-from master.db.models import Price, Demand, Weather
+from master.db.queries import upsert_timeseries, get_timestamps, upsert_graph
+from master.db.models import Price, Demand, ProductionResource, Weather
 
 from managers.config import EIC_CODES
-from managers import get_price, get_demand, get_era5 # endpoints
+from managers import get_price, get_demand, get_generation_units, get_era5
 
 
 @dataclass(frozen=True)
 class Source:
     model: Type[SQLModel]
     fetch_fn: Callable
+    save_fn: Callable
+    fetch_kind: Literal['range', 'cursor'] = 'range'
 
 SOURCES: dict[str, Source] = {
-    'entsoe_price': Source(model=Price, fetch_fn=get_price),
-    'entsoe_demand': Source(model=Demand, fetch_fn=get_demand),
-    'copernicus': Source(model=Weather, fetch_fn=get_era5),
+    'entsoe_price': Source(Price, get_price, upsert_timeseries),
+    'entsoe_demand': Source(Demand, get_demand, upsert_timeseries),
+    'generation_units': Source(ProductionResource, get_generation_units, upsert_graph, fetch_kind='cursor'),
+    'copernicus': Source(Weather, get_era5, upsert_timeseries),
 }
-
 
 def get_fetch_start() -> datetime:
     return datetime.now(timezone.utc).replace(hour=0, minute=0, second=0, microsecond=0) - timedelta(days=7)
@@ -32,48 +34,53 @@ def get_fetch_end() -> datetime:
     return datetime.now(timezone.utc).replace(hour=0, minute=0, second=0, microsecond=0) + timedelta(days=1)
 
 
-def fetch_zone_date_source(zone: str, start: datetime, end: datetime, source: str, progress_callback=None) -> None:
-    if source not in SOURCES.keys():
+def _fetch_range(session, zone, start, end, src, cb):
+    status = get_timestamps(session, src.model, zone, start, end)
+    if not status['missing_ranges']:
+        return None
+    records = []
+    for gap in status['missing_ranges']:
+        batch = src.fetch_fn(zone, gap["start"], gap["end"], progress_callback=cb)
+        if batch:
+            records.extend(batch)
+    return records
+
+
+def _fetch_cursor(zone, start, src, cb):
+    return src.fetch_fn(zone, start, progress_callback=cb)
+
+
+def fetch_zone_date_source(zone: str, start: datetime, end: datetime, source: str, progress_callback=None):
+    if source not in SOURCES:
         raise ValueError(f"Unsupported source: {source}")
+    src = SOURCES[source]
 
-    model = SOURCES[source].model
-    fetch_fn = SOURCES[source].fetch_fn
+    def cb(msg, q=source):
+        if progress_callback:
+            progress_callback(msg, q)
 
-    with Session(engine) as session:
-        status = get_timestamps(session, model, zone, start, end)
+    try:
+        with Session(engine) as session:
+            if src.fetch_kind == 'cursor':
+                records = _fetch_cursor(zone, start, src, cb)
+            else:
+                records = _fetch_range(session, zone, start, end, src, cb)
+                if records is None:
+                    if progress_callback:
+                        progress_callback("up-to-date", source)
+                    return
 
-        missing_ranges = status['missing_ranges']
-
-        if not missing_ranges:
-            if progress_callback:
-                progress_callback("up-to-date", source)
-            return
-
-        def cb(msg, q=source):
-            if progress_callback:
-                progress_callback(msg, q)
-
-        try:
-            all_records = []
-            
-            # fetch first, aggregate second
-            for gap in missing_ranges:
-                batch = fetch_fn(zone, gap["start"], gap["end"], progress_callback=cb)
-                if batch:
-                    all_records.extend(batch)
-
-            if all_records:
-                upsert(session, model, all_records)
+            if records:
+                src.save_fn(session, src.model, records)
                 if progress_callback:
                     progress_callback("done", source)
             else:
                 if progress_callback:
                     progress_callback("up-to-date", source)
-
-        except Exception as e:
-            if progress_callback:
-                progress_callback(f"failed: {e}", source)
-            raise
+    except Exception as e:
+        if progress_callback:
+            progress_callback(f"failed: {e}", source)
+        raise
 
 
 def fetch_zone_date(zone: str, start: datetime, end: datetime, progress_callback=None) -> None:

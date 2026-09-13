@@ -6,6 +6,11 @@ from sqlalchemy.dialects.postgresql import TIMESTAMP
 
 
 class Price(SQLModel, table=True):
+    '''
+    From API's Load / 12.1.D Energy Prices
+    '''
+    __tablename__ = "price"
+
     id: Optional[int] = Field(default=None, primary_key=True)
     zone: str
     timestamp: datetime = Field(sa_column=Column(TIMESTAMP(timezone=True), nullable=False))

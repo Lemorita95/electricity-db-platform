@@ -6,6 +6,8 @@ from sqlalchemy.dialects.postgresql import TIMESTAMP
 
 
 class Weather(SQLModel, table=True):
+    __tablename__ = "weather"
+
     id: Optional[int] = Field(default=None, primary_key=True)
     zone: str
     timestamp: datetime = Field(sa_column=Column(TIMESTAMP(timezone=True), nullable=False))

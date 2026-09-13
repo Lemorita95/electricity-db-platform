@@ -13,6 +13,11 @@ BAN_WAIT_SECONDS = 600
 
 
 class EntsoClient:
+    '''
+    - a bad request (e.g. end before start) raises a 400 code
+    - a good request but empty data (e.g. data too far in future) 
+        raises a 200 code but with a `Acknowledgement_MarketDocument` type
+    '''
     def __init__(self, status_callback=None):
         self.session = requests.Session()
         self.base_url = ENTSOE_BASE_URL

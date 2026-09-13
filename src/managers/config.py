@@ -44,6 +44,11 @@ QUERY_CONFIGS = {
         'value_tag': 'ns:quantity',
         'unit': 'MAW',
     },
+    'generation_units': {
+        'documentType': 'A95',
+        'businessType': 'B11',
+        'namespace': 'urn:iec62325.351:tc57wg16:451-6:configurationdocument:3:0',
+    },
     'eumet': {
         'collectionID': 'EO:EUM:DAT:0863',
         'sat': 'MSG',

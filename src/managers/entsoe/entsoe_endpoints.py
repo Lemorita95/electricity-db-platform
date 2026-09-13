@@ -3,10 +3,10 @@ import requests
 import xml.etree.ElementTree as ET
 
 from managers.config import EIC_CODES, QUERY_CONFIGS
-from master.db.models import Price, Demand
+from master.db.models import Price, Demand, ProductionResource
 
 from managers.entsoe.entsoe_client import EntsoClient
-from managers.entsoe.entsoe_parser import parse_price, parse_demand, parse_eic_code
+from managers.entsoe.entsoe_parser import parse_price, parse_demand, parse_generation_units, parse_eic_code
 from managers.chunks import chunk_by_period, display
 
 entsoe_client = EntsoClient()
@@ -63,6 +63,22 @@ def get_demand(zone: str, start: datetime, end: datetime, progress_callback=None
         }
         all_results.extend(_fetch(params, parse_demand, zone))
     return all_results
+
+
+def get_generation_units(zone: str, start: datetime, progress_callback=None) -> list[ProductionResource]:
+    cfg = QUERY_CONFIGS['generation_units']
+
+    if progress_callback:
+        progress_callback(f"generation units — from {display(start)}")
+
+    params = {
+        'documentType': cfg['documentType'],
+        'businessType': cfg['businessType'],
+        'BiddingZone_Domain': EIC_CODES[zone]['eic'],
+        'Implementation_DateAndOrTime': start.strftime('%Y-%m-%d'),
+    }
+
+    return _fetch(params, parse_generation_units, zone)
 
 
 def get_eic_code(function_filter: str = None) -> list:
