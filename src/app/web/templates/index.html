@@ -25,7 +25,6 @@
       <span>req/min</span>
     </div>
   </div>
-  <button class="btn" id="update-all-btn">↻ refresh all</button>
 </header>
 
 <nav class="pages">
@@ -33,6 +32,7 @@
   <a href="/entsoe">entso-e</a>
   <a href="/copernicus">copernicus</a>
   <a href="/generation_units">generation units</a>
+  <a href="/physical_flow">physical flow</a>
 </nav>
 
 <div class="error-msg" id="error-msg"></div>
@@ -74,6 +74,7 @@
   // one-time structure and are never touched again, so nothing can wipe
   // out what you're typing mid-interaction.
   const cardElements = {};
+  let allCard = null;
 
   function createCard(sourceKey) {
     const card = document.createElement('div');
@@ -105,7 +106,7 @@
     card.querySelector('[data-role="sync-btn"]').addEventListener('click', () => {
       const start = card.querySelector('.start-input').value;
       const end = card.querySelector('.end-input').value;
-      triggerFetch(sourceKey === 'all' ? null : sourceKey, start, end);
+      triggerFetch(sourceKey, start, end);
     });
 
     return card;
@@ -128,6 +129,68 @@
       (status === 'failed' && data.error) ? `<div class="source-error">${escapeHtml(data.error)}</div>` : '';
 
     card.querySelector('[data-role="progress-slot"]').innerHTML = renderProgress(data.progress);
+  }
+
+  // The 'all' card doesn't correspond to a single backend job -- clicking it
+  // fans out into one /api/fetch call per real source. So instead of reading
+  // one status-map entry like the other cards, it summarizes all of them.
+  function createAllCard() {
+    const card = document.createElement('div');
+    card.className = 'chart-card';
+    card.innerHTML = `
+      <div class="chart-header">
+        <div class="chart-header-left">
+          <span class="chart-title">all</span>
+        </div>
+        <span class="status-badge idle" data-role="badge">idle</span>
+      </div>
+
+      <div class="card-controls">
+        <div class="field">
+          <label>Start</label>
+          <input type="datetime-local" class="start-input">
+        </div>
+        <div class="field">
+          <label>End</label>
+          <input type="datetime-local" class="end-input">
+        </div>
+        <button class="btn" data-role="sync-btn">↻ sync all</button>
+      </div>
+    `;
+
+    card.querySelector('[data-role="sync-btn"]').addEventListener('click', async () => {
+      const start = card.querySelector('.start-input').value;
+      const end = card.querySelector('.end-input').value;
+
+      let payload;
+      try {
+        const res = await fetch('/api/fetch/status');
+        payload = await res.json();
+      } catch (e) {
+        showError('network error: ' + e.message);
+        return;
+      }
+      const { rates, ...statusMap } = payload;
+      for (const sourceName of Object.keys(statusMap)) {
+        triggerFetch(sourceName, start, end);
+      }
+    });
+
+    return card;
+  }
+
+  function updateAllCard(card, statusMap) {
+    const values = Object.values(statusMap);
+    const busyCount = values.filter(v => v && (v.status === 'running' || v.status === 'queued')).length;
+
+    const badge = card.querySelector('[data-role="badge"]');
+    if (busyCount > 0) {
+      badge.className = 'status-badge running';
+      badge.textContent = `${busyCount}/${values.length} running`;
+    } else {
+      badge.className = 'status-badge idle';
+      badge.textContent = 'idle';
+    }
   }
 
   function updateRates(rates) {
@@ -155,6 +218,12 @@
     updateRates(rates);
 
     const grid = document.getElementById('monitor-grid');
+
+    if (!allCard) {
+      allCard = createAllCard();
+      grid.appendChild(allCard);
+    }
+
     for (const [key, data] of Object.entries(statusMap)) {
       let card = cardElements[key];
       if (!card) {
@@ -165,6 +234,7 @@
       updateCard(card, data || {});
     }
 
+    updateAllCard(allCard, statusMap);
     schedule(anyBusy(statusMap) ? 1500 : 5000);
   }
 
@@ -177,10 +247,10 @@
     clearError();
     try {
       const params = new URLSearchParams();
-      if (source) params.append('source', source);
+      params.append('source', source);
       if (start) params.append('start', new Date(start).toISOString());
       if (end) params.append('end', new Date(end).toISOString());
-      const url = `/api/fetch${params.toString() ? '?' + params.toString() : ''}`;
+      const url = `/api/fetch?${params.toString()}`;
 
       const res = await fetch(url, { method: 'POST' });
       if (!res.ok) {
@@ -193,8 +263,6 @@
       showError('network error: ' + e.message);
     }
   }
-
-  document.getElementById('update-all-btn').addEventListener('click', () => triggerFetch(null));
 
   refresh();
 </script>

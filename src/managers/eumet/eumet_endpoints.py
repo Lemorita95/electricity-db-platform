@@ -1,7 +1,7 @@
 from datetime import datetime
 from concurrent.futures import ThreadPoolExecutor, as_completed
 
-from managers.config import EIC_CODES, QUERY_CONFIGS
+from managers.config import NORDICS_CODES, QUERY_CONFIGS
 from master.db.models import Irradiance
 
 from managers.eumet.eumet_client import EumetClient
@@ -17,8 +17,8 @@ cfg = QUERY_CONFIGS['eumet']
 
 
 def _point_bbox(zone: str) -> str:
-    lat = EIC_CODES[zone]['lat']
-    lon = EIC_CODES[zone]['lon']
+    lat = NORDICS_CODES[zone]['lat']
+    lon = NORDICS_CODES[zone]['lon']
     return (
         f"{lon - SPATIAL_RESOLUTION},{lat - SPATIAL_RESOLUTION},"
         f"{lon + SPATIAL_RESOLUTION},{lat + SPATIAL_RESOLUTION}"

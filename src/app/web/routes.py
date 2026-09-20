@@ -4,13 +4,14 @@ from fastapi.templating import Jinja2Templates
 from sqlmodel import Session
 from datetime import date, datetime
 import threading
+import json
 from pathlib import Path
 
 from master.db.connection import get_session
-from master.db.models import Price, Demand, Weather, ProductionResource
+from master.db.models import Price, Demand, Weather, ProductionResource, CrossBorderCapacity, ZonePhysicalFlow
 from master.db.queries import fetch_timeseries, fetch_graph
-from managers.config import EIC_CODES
-from managers.sync import sync
+from managers.config import NORDICS_CODES, LINKS
+from managers.sync import sync, SOURCES
 from managers import copernicus_client, entsoe_client
 
 
@@ -18,13 +19,7 @@ BASE = Path(__file__).resolve().parent
 TEMPLATES_DIR = BASE / "templates"
 
 fetch_lock = threading.Lock()
-fetch_status_map: dict[str, dict] = {
-    "entsoe_price": {"status": "idle"},
-    "entsoe_demand": {"status": "idle"},
-    'generation_units': {"status": "idle"},
-    "copernicus": {"status": "idle"},
-    "all": {"status": "idle"},
-}
+fetch_status_map: dict[str, dict] = {name: {"status": "idle"} for name in SOURCES}
 
 router = APIRouter()
 templates = Jinja2Templates(directory=TEMPLATES_DIR)
@@ -51,7 +46,7 @@ def entsoe_page(request: Request):
     return templates.TemplateResponse(
         request=request,
         name="entsoe.html",
-        context={"zones": list(EIC_CODES.keys())}
+        context={"zones": list(NORDICS_CODES.keys())}
     )
 
 
@@ -60,7 +55,7 @@ def generation_units_page(request: Request):
     return templates.TemplateResponse(
         request=request,
         name="generation_units.html",
-        context={"zones": list(EIC_CODES.keys())}
+        context={"zones": list(NORDICS_CODES.keys())}
     )
 
 
@@ -69,7 +64,16 @@ def copernicus_page(request: Request):
     return templates.TemplateResponse(
         request=request,
         name="copernicus.html",
-        context={"zones": list(EIC_CODES.keys()), "weather_columns": WEATHER_COLUMNS}
+        context={"zones": list(NORDICS_CODES.keys()), "weather_columns": WEATHER_COLUMNS}
+    )
+
+
+@router.get("/physical_flow", response_class=HTMLResponse)
+def physical_flow_page(request: Request):
+    return templates.TemplateResponse(
+        request=request,
+        name="physical_flow.html",
+        context={"zones": list(NORDICS_CODES), "links_json": json.dumps(LINKS)}
     )
 
 
@@ -85,6 +89,21 @@ def get_demand_snapshot(zone: str, start: datetime, end: datetime, session: Sess
     validate_range(start, end)
     records = fetch_timeseries(session, Demand, zone, start, end)
     return [{"timestamp": r.timestamp.isoformat(), "quantity": r.quantity} for r in records if r.quantity is not None]
+
+
+@router.get("/api/capacity")
+def get_capacity_snapshot(link: str, start: datetime, end: datetime, session: Session = Depends(get_session)):
+    validate_range(start, end)
+    records = fetch_timeseries(session, CrossBorderCapacity, link, start, end)
+    return [{"timestamp": r.timestamp.isoformat(), "quantity": r.quantity} for r in records if r.quantity is not None]
+
+
+@router.get("/api/physical_flow")
+def get_physical_flow_snapshot(link: str, start: datetime, end: datetime, session: Session = Depends(get_session)):
+    validate_range(start, end)
+    records = fetch_timeseries(session, ZonePhysicalFlow, link, start, end)
+    return [{"timestamp": r.timestamp.isoformat(), "quantity": r.quantity} for r in records if r.quantity is not None]
+
 
 
 @router.get("/api/generation_units")
@@ -122,41 +141,39 @@ def get_weather_snapshot(zone: str, start: datetime, end: datetime, column: str,
     return [{"timestamp": r.timestamp.isoformat(), "value": getattr(r, column)} for r in records if getattr(r, column) is not None]
 
 
-def _run_in_background(source: str | None, start: datetime | None = None, end: datetime | None = None):
-    key = source or 'all'
-
+def _run_in_background(source: str, start: datetime | None = None, end: datetime | None = None):
     with fetch_lock:
-        if fetch_status_map[key]["status"] == "running":
+        if fetch_status_map[source]["status"] == "running":
             return False
-        fetch_status_map[key]["status"] = "queued"
+        fetch_status_map[source]["status"] = "queued"
 
     def run():
-        fetch_status_map[key]["status"] = "running"
-        fetch_status_map[key]["progress"] = {}
+        fetch_status_map[source]["status"] = "running"
+        fetch_status_map[source]["progress"] = {}
 
-        def progress_callback(zone, msg, source):
-            fetch_status_map[key]["progress"].setdefault(zone, {})[source] = msg
+        def progress_callback(key, msg, source_name):
+            fetch_status_map[source]["progress"].setdefault(key, {})[source_name] = msg
 
         try:
             sync(source=source, start=start, end=end, progress_callback=progress_callback)
-            fetch_status_map[key]["status"] = "done"
+            fetch_status_map[source]["status"] = "done"
         except Exception as e:
-            fetch_status_map[key]["status"] = "failed"
-            fetch_status_map[key]["error"] = str(e)
+            fetch_status_map[source]["status"] = "failed"
+            fetch_status_map[source]["error"] = str(e)
 
     threading.Thread(target=run, daemon=True).start()
     return True
 
 
 @router.post("/api/fetch")
-def trigger_fetch(source: str | None = None, start: datetime | None = None, end: datetime | None = None):
+def trigger_fetch(source: str, start: datetime | None = None, end: datetime | None = None):
     valid_sources = list(fetch_status_map.keys())
-    if source and source not in valid_sources:
+    if source not in valid_sources:
         raise HTTPException(status_code=400, detail=f"Invalid source. Must be one of {valid_sources}")
     started = _run_in_background(source, start, end)
     if not started:
         raise HTTPException(status_code=409, detail="Fetch already running for this source")
-    return {"status": "started", "source": source or "all"}
+    return {"status": "started", "source": source}
 
 
 @router.get("/api/fetch/status")

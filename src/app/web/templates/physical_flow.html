@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>electricity_db · copernicus</title>
+<title>electricity_db · physical flow</title>
 <script src="https://cdn.jsdelivr.net/npm/plotly.js-dist@2.27.0/plotly.min.js"></script>
 <link rel="stylesheet" href="/static/style.css">
 </head>
@@ -12,14 +12,14 @@
 
 <header>
   <h1>electricity_db</h1>
-  <span class="subtitle">weather</span>
+  <span class="subtitle">zone physical flow</span>
 
   <div class="spacer"></div>
 
   <div class="rate-status">
     <div class="rate-item">
-      <span class="rate-label">COPERNICUS</span>
-      <span class="rate-value" id="copernicus-rate">—</span>
+      <span class="rate-label">ENTSO-E</span>
+      <span class="rate-value" id="entsoe-rate">—</span>
       <span>req/min</span>
     </div>
   </div>
@@ -28,9 +28,9 @@
 <nav class="pages">
   <a href="/">overview</a>
   <a href="/entsoe">entso-e</a>
-  <a href="/copernicus" class="active">copernicus</a>
+  <a href="/copernicus">copernicus</a>
   <a href="/generation_units">generation units</a>
-  <a href="/physical_flow">physical flow</a>
+  <a href="/physical_flow" class="active">physical flow</a>
 </nav>
 
 <div class="controls">
@@ -63,19 +63,27 @@
   <div class="chart-card">
     <div class="chart-header">
       <div class="chart-header-left">
-        <span class="chart-title">Weather</span>
-
-        <select class="weather-select" id="weather-col">
-          {% for col in weather_columns %}
-          <option value="{{ col }}">{{ col }}</option>
-          {% endfor %}
-        </select>
+        <span class="chart-title">Physical flow — export</span>
+        <span class="chart-unit">MW</span>
       </div>
-
-      <button class="btn" id="sync-weather-btn">↻ sync</button>
+      <button class="btn" id="sync-export-btn">↻ sync</button>
     </div>
 
-    <div class="chart-container" id="weather-chart">
+    <div class="chart-container" id="export-chart">
+      <div class="status">select a zone and date range</div>
+    </div>
+  </div>
+
+  <div class="chart-card">
+    <div class="chart-header">
+      <div class="chart-header-left">
+        <span class="chart-title">Physical flow — import</span>
+        <span class="chart-unit">MW</span>
+      </div>
+      <button class="btn" id="sync-import-btn">↻ sync</button>
+    </div>
+
+    <div class="chart-container" id="import-chart">
       <div class="status">select a zone and date range</div>
     </div>
   </div>
@@ -83,9 +91,16 @@
 </div>
 
 <script>
-  const COLORS = {
-    weather: '#C49EE0'
-  };
+  // Every known directional link -- filtered client-side per selected zone.
+  // Passed as a pre-serialized JSON string from the route (json.dumps), not
+  // relying on a `tojson` Jinja filter that may not be registered.
+  const LINKS = {{ links_json | safe }};
+
+  // Palette for distinguishing multiple lines within one chart -- a different
+  // concern from frontend-patterns.md's per-data-source accent colors, since
+  // every line on these two charts is already the same data source (physical
+  // flow); what needs distinguishing here is the counterpart zone.
+  const PALETTE = ['#5DCAA5', '#85B7EB', '#E8A87C', '#C38DE0', '#F2D399', '#7FD1D1', '#E88DA8', '#A8D17F'];
 
   const layout = (unit) => ({
     paper_bgcolor: 'transparent',
@@ -120,7 +135,12 @@
         font: { size: 10 }
       }
     },
-    showlegend: false
+    showlegend: true,
+    legend: {
+      orientation: 'h',
+      y: 1.2,
+      font: { size: 10 }
+    }
   });
 
   const config = {
@@ -153,18 +173,86 @@
   }
 
   function clearRates() {
-    document.getElementById('copernicus-rate').textContent = '—';
+    document.getElementById('entsoe-rate').textContent = '—';
   }
 
   function updateRates(status) {
-    const copernicusRate = document.getElementById('copernicus-rate');
+    const entsoeRate = document.getElementById('entsoe-rate');
 
     if (!status.rates) {
       clearRates();
       return;
     }
 
-    copernicusRate.textContent = status.rates.copernicus ?? '—';
+    entsoeRate.textContent = status.rates.entsoe ?? '—';
+  }
+
+  // Exports: links where `zone` is the sender (origin). Imports: where it's the
+  // receiver (destination). Matches LINKS' {origin, destination} shape.
+  function exportsFor(zone) {
+    return Object.entries(LINKS)
+      .filter(([, v]) => v.origin === zone)
+      .map(([key, v]) => ({ key, counterpart: v.destination }));
+  }
+
+  function importsFor(zone) {
+    return Object.entries(LINKS)
+      .filter(([, v]) => v.destination === zone)
+      .map(([key, v]) => ({ key, counterpart: v.origin }));
+  }
+
+  // Fetches one link's series each, tolerating individual failures (one bad
+  // link shouldn't blank out the whole chart) -- allSettled, not all.
+  async function fetchLinks(links, start, end) {
+    const base = new URLSearchParams({
+      start: new Date(start).toISOString(),
+      end: new Date(end).toISOString()
+    });
+
+    const results = await Promise.allSettled(
+      links.map(async ({ key, counterpart }) => {
+        const res = await fetch(`/api/physical_flow?link=${encodeURIComponent(key)}&${base}`);
+        if (!res.ok) {
+          throw new Error((await res.json()).detail || `${key} fetch failed`);
+        }
+        return { counterpart, data: await res.json() };
+      })
+    );
+
+    const ok = [];
+    const failed = [];
+    for (const r of results) {
+      if (r.status === 'fulfilled') ok.push(r.value);
+      else failed.push(r.reason?.message || 'unknown error');
+    }
+    return { ok, failed };
+  }
+
+  function renderMultiTrace(containerId, series, unit, range) {
+    const traces = series.map((s, i) => {
+      const d = Array.isArray(s.data) ? s.data : [];
+      return {
+        x: d.map(v => v.timestamp),
+        y: d.map(v => v.quantity),
+        type: 'scatter',
+        mode: 'lines',
+        name: s.counterpart,
+        line: {
+          color: PALETTE[i % PALETTE.length],
+          width: 1.5
+        }
+      };
+    });
+
+    Plotly.react(
+      containerId,
+      traces,
+      {
+        ...layout(unit),
+        xaxis: { ...layout(unit).xaxis, range, autorange: false }
+      },
+      config
+    );
   }
 
   async function fetchData() {
@@ -173,7 +261,6 @@
     const zone = document.getElementById('zone-select').value;
     const start = document.getElementById('start-input').value;
     const end = document.getElementById('end-input').value;
-    const col = document.getElementById('weather-col').value;
     const btn = document.getElementById('fetch-btn');
 
     if (!start || !end) {
@@ -186,60 +273,32 @@
       return;
     }
 
+    const exportLinks = exportsFor(zone);
+    const importLinks = importsFor(zone);
+
+    if (exportLinks.length === 0 && importLinks.length === 0) {
+      showError(`no known links for ${zone}`);
+      return;
+    }
+
     btn.disabled = true;
     btn.textContent = 'loading...';
 
-    const params = new URLSearchParams({
-      zone,
-      start: new Date(start).toISOString(),
-      end: new Date(end).toISOString(),
-      column: col
-    });
+    const sharedRange = [new Date(start).toISOString(), new Date(end).toISOString()];
 
     try {
-      const weatherRes = await fetch(`/api/weather?${params}`);
+      const [exportResult, importResult] = await Promise.all([
+        fetchLinks(exportLinks, start, end),
+        fetchLinks(importLinks, start, end)
+      ]);
 
-      if (!weatherRes.ok) {
-        showError((await weatherRes.json()).detail || 'weather fetch failed');
-        return;
+      renderMultiTrace('export-chart', exportResult.ok, 'MW', sharedRange);
+      renderMultiTrace('import-chart', importResult.ok, 'MW', sharedRange);
+
+      const allFailed = [...exportResult.failed, ...importResult.failed];
+      if (allFailed.length > 0) {
+        showError(`${allFailed.length} link(s) failed to load: ${allFailed[0]}${allFailed.length > 1 ? ' (+' + (allFailed.length - 1) + ' more)' : ''}`);
       }
-
-      const weatherData = await weatherRes.json();
-
-      const xMin = new Date(start).toISOString();
-      const xMax = new Date(end).toISOString();
-      const sharedRange = [xMin, xMax];
-
-      const sharedLayout = (unit, range) => ({
-        ...layout(unit),
-        xaxis: {
-          ...layout(unit).xaxis,
-          range: range,
-          autorange: false
-        }
-      });
-
-      const trace = (data, xKey, yKey, color) => {
-        const d = Array.isArray(data) ? data : [];
-
-        return [{
-          x: d.map(v => v[xKey]),
-          y: d.map(v => v[yKey]),
-          type: 'scatter',
-          mode: 'lines',
-          line: {
-            color,
-            width: 1.5
-          }
-        }];
-      };
-
-      Plotly.react(
-        'weather-chart',
-        trace(weatherData, 'timestamp', 'value', COLORS.weather),
-        sharedLayout(col, sharedRange),
-        config
-      );
 
     } finally {
       btn.disabled = false;
@@ -247,51 +306,18 @@
     }
   }
 
-  document.getElementById('weather-col').addEventListener('change', () => {
-    const zone = document.getElementById('zone-select').value;
-    const start = document.getElementById('start-input').value;
-    const end = document.getElementById('end-input').value;
-    const col = document.getElementById('weather-col').value;
-
-    if (!start || !end) return;
-
-    const params = new URLSearchParams({
-      zone,
-      start: new Date(start).toISOString(),
-      end: new Date(end).toISOString(),
-      column: col
-    });
-
-    fetch(`/api/weather?${params}`)
-      .then(r => r.json())
-      .then(data => {
-        Plotly.react(
-          'weather-chart',
-          [{
-            x: data.map(d => d.timestamp),
-            y: data.map(d => d.value),
-            type: 'scatter',
-            mode: 'lines',
-            line: {
-              color: COLORS.weather,
-              width: 1.5
-            }
-          }],
-          layout(col),
-          config
-        );
-      });
-  });
-
   const syncBtns = {
-    copernicus: document.getElementById('sync-weather-btn'),
+    'export-chart': document.getElementById('sync-export-btn'),
+    'import-chart': document.getElementById('sync-import-btn'),
   };
 
   let pollInterval = null;
 
-  async function triggerFetch(source) {
-    const key = source;
-    const btn = syncBtns[key];
+  // Both buttons trigger the same underlying source -- there's one table
+  // behind both charts, just viewed from two directions.
+  async function triggerFetch(triggerKey) {
+    const btn = syncBtns[triggerKey];
+    const source = 'zone_physical_flow';
 
     const start = document.getElementById('start-input').value;
     const end = document.getElementById('end-input').value;
@@ -336,7 +362,7 @@
           const status = await res.json();
           updateRates(status);
 
-          const job = status[key];
+          const job = status[source];
           if (!job) return;
 
           if (job.status === 'done' || job.status === 'failed') {
@@ -376,7 +402,8 @@
   }
 
   document.getElementById('fetch-btn').addEventListener('click', fetchData);
-  document.getElementById('sync-weather-btn').addEventListener('click', () => triggerFetch('copernicus'));
+  document.getElementById('sync-export-btn').addEventListener('click', () => triggerFetch('export-chart'));
+  document.getElementById('sync-import-btn').addEventListener('click', () => triggerFetch('import-chart'));
 
   setDefaults();
 </script>

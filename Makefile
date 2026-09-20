@@ -1,5 +1,3 @@
-# platform/electricity-data-manager/Makefile
-
 infra-up:
 	$(MAKE) -C ../infrastructure up
 
@@ -22,5 +20,8 @@ down-all: down infra-down
 logs:
 	docker-compose logs -f app
 
-migrate:
-	docker-compose run --rm migrate
+migrate: infra-up build
+	docker-compose run --rm migrate; \
+	status=$$?; \
+	$(MAKE) -C ../infrastructure down; \
+	exit $$status

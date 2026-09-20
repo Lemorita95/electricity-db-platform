@@ -4,7 +4,7 @@ import zipfile
 import tempfile
 import xarray as xr
 
-from managers.config import EIC_CODES, QUERY_CONFIGS
+from managers.config import NORDICS_CODES, QUERY_CONFIGS
 from master.db.models import Irradiance
 
 
@@ -17,8 +17,8 @@ def get_value(arr, i):
 
 def parse_irradiance(product, zone: str, var_type: str) -> list[Irradiance]:
     cfg = QUERY_CONFIGS['irradiance']
-    lat = EIC_CODES[zone]['lat']
-    lon = EIC_CODES[zone]['lon']
+    lat = NORDICS_CODES[zone]['lat']
+    lon = NORDICS_CODES[zone]['lon']
     records = []
 
     with product.open() as raw:

@@ -2,12 +2,15 @@ from datetime import datetime
 import requests
 import xml.etree.ElementTree as ET
 
-from managers.config import EIC_CODES, QUERY_CONFIGS
-from master.db.models import Price, Demand, ProductionResource
+from master.db.models import Price, Demand, ProductionResource, \
+        CrossBorderCapacity, ZonePhysicalFlow
 
+from managers.config import EIC_CODES, NORDICS_CODES, QUERY_CONFIGS, LINKS
 from managers.entsoe.entsoe_client import EntsoClient
-from managers.entsoe.entsoe_parser import parse_price, parse_demand, parse_generation_units, parse_eic_code
+from managers.entsoe.entsoe_parser import parse_price, parse_demand, parse_generation_units, \
+    parse_cross_border_capacity, parse_eic_code, parse_zone_physical_flows
 from managers.chunks import chunk_by_period, display
+
 
 entsoe_client = EntsoClient()
 
@@ -29,6 +32,9 @@ def _paginate(params, parse_fn, zone):
 
 
 def get_price(zone: str, start: datetime, end: datetime, progress_callback=None) -> list[Price]:
+    '''
+        resolve price for a single 'key' (zone)
+    '''
     cfg = QUERY_CONFIGS['price']
     all_results = []
     chunks = chunk_by_period(start, end, '30d')
@@ -38,8 +44,8 @@ def get_price(zone: str, start: datetime, end: datetime, progress_callback=None)
         params = {
             'documentType': cfg['documentType'],
             'contract_MarketAgreement.type': cfg['contract_MarketAgreement.type'],
-            'in_Domain': EIC_CODES[zone]['eic'],
-            'out_Domain': EIC_CODES[zone]['eic'],
+            'in_Domain': NORDICS_CODES[zone]['eic'],
+            'out_Domain': NORDICS_CODES[zone]['eic'],
             'periodStart': chunk_start.strftime('%Y%m%d%H%M'),
             'periodEnd': chunk_end.strftime('%Y%m%d%H%M'),
         }
@@ -48,6 +54,9 @@ def get_price(zone: str, start: datetime, end: datetime, progress_callback=None)
 
 
 def get_demand(zone: str, start: datetime, end: datetime, progress_callback=None) -> list[Demand]:
+    '''
+        resolve demand for a single 'key' (zone)
+    '''
     cfg = QUERY_CONFIGS['demand']
     all_results = []
     chunks = chunk_by_period(start, end, '30d')
@@ -57,7 +66,7 @@ def get_demand(zone: str, start: datetime, end: datetime, progress_callback=None
         params = {
             'documentType': cfg['documentType'],
             'processType': cfg['processType'],
-            'outBiddingZone_Domain': EIC_CODES[zone]['eic'],
+            'outBiddingZone_Domain': NORDICS_CODES[zone]['eic'],
             'periodStart': chunk_start.strftime('%Y%m%d%H%M'),
             'periodEnd': chunk_end.strftime('%Y%m%d%H%M'),
         }
@@ -66,6 +75,9 @@ def get_demand(zone: str, start: datetime, end: datetime, progress_callback=None
 
 
 def get_generation_units(zone: str, start: datetime, progress_callback=None) -> list[ProductionResource]:
+    '''
+        resolve generation units for a single 'key' (zone)
+    '''
     cfg = QUERY_CONFIGS['generation_units']
 
     if progress_callback:
@@ -74,11 +86,57 @@ def get_generation_units(zone: str, start: datetime, progress_callback=None) -> 
     params = {
         'documentType': cfg['documentType'],
         'businessType': cfg['businessType'],
-        'BiddingZone_Domain': EIC_CODES[zone]['eic'],
+        'BiddingZone_Domain': NORDICS_CODES[zone]['eic'],
         'Implementation_DateAndOrTime': start.strftime('%Y-%m-%d'),
     }
 
     return _fetch(params, parse_generation_units, zone)
+
+
+def get_cross_border_capacity(key: str, start: datetime, end: datetime, progress_callback=None) -> list[CrossBorderCapacity]:
+    '''
+        resolve cross border capacity for a single 'key' (link)
+    '''
+    cfg = QUERY_CONFIGS['cross_border_capacity']
+    link = LINKS[key]
+    all_results = []
+    chunks = chunk_by_period(start, end, '30d')
+    for i, (chunk_start, chunk_end) in enumerate(chunks, 1):
+        if progress_callback:
+            progress_callback(f"cross_border_capacity {i}/{len(chunks)} — {display(chunk_start)} → {display(chunk_end)}")
+        params = {
+            'documentType': cfg['documentType'],
+            'curveType': cfg['curveType'],
+            'in_Domain': EIC_CODES[link['destination']]['eic'],
+            'out_Domain': EIC_CODES[link['origin']]['eic'],
+            'periodStart': chunk_start.strftime('%Y%m%d%H%M'),
+            'periodEnd': chunk_end.strftime('%Y%m%d%H%M'),
+        }
+        all_results.extend(_fetch(params, parse_cross_border_capacity, key))
+    return all_results
+
+
+def get_zone_physical_flows(key: str, start: datetime, end: datetime, progress_callback=None) -> list[ZonePhysicalFlow]:
+    '''
+        resolve zone physical flow for a single 'key' (link)
+    '''
+    cfg = QUERY_CONFIGS['zone_physical_flows']
+    link = LINKS[key]
+    all_results = []
+    chunks = chunk_by_period(start, end, '30d')
+    for i, (chunk_start, chunk_end) in enumerate(chunks, 1):
+        if progress_callback:
+            progress_callback(f"zone_physical_flows {i}/{len(chunks)} — {display(chunk_start)} → {display(chunk_end)}")
+        params = {
+            'documentType': cfg['documentType'],
+            'curveType': cfg['curveType'],
+            'in_Domain': EIC_CODES[link['destination']]['eic'],
+            'out_Domain': EIC_CODES[link['origin']]['eic'],
+            'periodStart': chunk_start.strftime('%Y%m%d%H%M'),
+            'periodEnd': chunk_end.strftime('%Y%m%d%H%M'),
+        }
+        all_results.extend(_fetch(params, parse_zone_physical_flows, key))
+    return all_results
 
 
 def get_eic_code(function_filter: str = None) -> list:

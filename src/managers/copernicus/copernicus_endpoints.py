@@ -1,7 +1,7 @@
 from copy import deepcopy
 from datetime import datetime
 
-from managers.config import EIC_CODES, QUERY_CONFIGS
+from managers.config import NORDICS_CODES, QUERY_CONFIGS
 from master.db.models import Weather
 
 from managers.copernicus.copernicus_client import CopernicusClient
@@ -16,8 +16,8 @@ cfg = QUERY_CONFIGS['copernicus']
 def _build_request(zone: str, start: datetime, end: datetime) -> dict:
     request = deepcopy(cfg['request'])
     request['location'] = {
-        'longitude': EIC_CODES[zone]['lon'],
-        'latitude': EIC_CODES[zone]['lat'],
+        'longitude': NORDICS_CODES[zone]['lon'],
+        'latitude': NORDICS_CODES[zone]['lat'],
     }
     request['date'] = [f"{start:%Y-%m-%d}/{end:%Y-%m-%d}"]
     return request

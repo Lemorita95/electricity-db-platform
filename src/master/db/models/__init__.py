@@ -5,3 +5,5 @@ from master.db.models.Weather import Weather
 from master.db.models.Irradiance import Irradiance
 from master.db.models.ProductionResource import ProductionResource
 from master.db.models.GeneratingUnit import GeneratingUnit
+from master.db.models.CrossBorderCapacity import CrossBorderCapacity
+from master.db.models.ZonePhysicalFlow import ZonePhysicalFlow
