@@ -16,7 +16,7 @@ def get_value(arr, i):
 
 
 def parse_irradiance(product, zone: str, var_type: str) -> list[Irradiance]:
-    cfg = QUERY_CONFIGS['irradiance']
+    cfg = QUERY_CONFIGS['eumet']
     lat = NORDICS_CODES[zone]['lat']
     lon = NORDICS_CODES[zone]['lon']
     records = []

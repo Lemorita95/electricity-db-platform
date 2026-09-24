@@ -8,7 +8,7 @@ from master.db.models import Price, Demand, ProductionResource, \
 from managers.config import EIC_CODES, NORDICS_CODES, QUERY_CONFIGS, LINKS
 from managers.entsoe.entsoe_client import EntsoClient
 from managers.entsoe.entsoe_parser import parse_price, parse_demand, parse_generation_units, \
-    parse_cross_border_capacity, parse_eic_code, parse_zone_physical_flows
+    parse_cross_border_capacity, parse_eic_code, parse_zone_physical_flow
 from managers.chunks import chunk_by_period, display
 
 
@@ -116,17 +116,17 @@ def get_cross_border_capacity(key: str, start: datetime, end: datetime, progress
     return all_results
 
 
-def get_zone_physical_flows(key: str, start: datetime, end: datetime, progress_callback=None) -> list[ZonePhysicalFlow]:
+def get_zone_physical_flow(key: str, start: datetime, end: datetime, progress_callback=None) -> list[ZonePhysicalFlow]:
     '''
         resolve zone physical flow for a single 'key' (link)
     '''
-    cfg = QUERY_CONFIGS['zone_physical_flows']
+    cfg = QUERY_CONFIGS['zone_physical_flow']
     link = LINKS[key]
     all_results = []
     chunks = chunk_by_period(start, end, '30d')
     for i, (chunk_start, chunk_end) in enumerate(chunks, 1):
         if progress_callback:
-            progress_callback(f"zone_physical_flows {i}/{len(chunks)} — {display(chunk_start)} → {display(chunk_end)}")
+            progress_callback(f"zone_physical_flow {i}/{len(chunks)} — {display(chunk_start)} → {display(chunk_end)}")
         params = {
             'documentType': cfg['documentType'],
             'curveType': cfg['curveType'],
@@ -135,7 +135,7 @@ def get_zone_physical_flows(key: str, start: datetime, end: datetime, progress_c
             'periodStart': chunk_start.strftime('%Y%m%d%H%M'),
             'periodEnd': chunk_end.strftime('%Y%m%d%H%M'),
         }
-        all_results.extend(_fetch(params, parse_zone_physical_flows, key))
+        all_results.extend(_fetch(params, parse_zone_physical_flow, key))
     return all_results
 
 

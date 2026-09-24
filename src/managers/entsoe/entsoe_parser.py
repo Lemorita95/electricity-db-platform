@@ -6,6 +6,20 @@ from datetime import date, datetime, timedelta
 from managers.config import QUERY_CONFIGS
 from master.db.models import Price, Demand, ProductionResource, GeneratingUnit, \
     CrossBorderCapacity, ZonePhysicalFlow
+from master.db.queries import RESOLUTION_MAP
+
+
+RESOLUTION_STEP = {
+    'PT15M': timedelta(minutes=15),
+    'PT30M': timedelta(minutes=30),
+    'PT60M': timedelta(hours=1),
+    'PT1H': timedelta(hours=1),
+}
+
+def _resolution_step(resolution: str) -> timedelta:
+    if resolution not in RESOLUTION_MAP:
+        raise ValueError(f"unsupported resolution {resolution!r}")
+    return RESOLUTION_MAP[resolution]
 
 
 def _text(elem: ET.Element) -> str:
@@ -63,7 +77,7 @@ def parse_price(root: ET.Element, zone: str) -> list[Price]:
         start = datetime.fromisoformat(period.find('ns:timeInterval/ns:start', ns).text.replace('Z', '+00:00'))
         end = datetime.fromisoformat(period.find('ns:timeInterval/ns:end', ns).text.replace('Z', '+00:00'))
         currency = ts.find('ns:currency_Unit.name', ns).text
-        step = timedelta(minutes=15 if resolution == 'PT15M' else 60)
+        step = _resolution_step(resolution)
 
         points = period.findall('ns:Point', ns)
         for timestamp, price in _expand_points(points, ns, start, step, end, cfg['value_tag']):
@@ -88,7 +102,7 @@ def parse_demand(root: ET.Element, zone: str) -> list[Demand]:
             resolution = period.find('ns:resolution', ns).text
             start = datetime.fromisoformat(period.find('ns:timeInterval/ns:start', ns).text.replace('Z', '+00:00'))
             end = datetime.fromisoformat(period.find('ns:timeInterval/ns:end', ns).text.replace('Z', '+00:00'))
-            step = timedelta(minutes=15 if resolution == 'PT15M' else 60)
+            step = _resolution_step(resolution)
 
             points = period.findall('ns:Point', ns)
             for timestamp, quantity in _expand_points(points, ns, start, step, end, cfg['value_tag']):
@@ -157,7 +171,7 @@ def parse_cross_border_capacity(root: ET.Element, zone: str) -> list[CrossBorder
             resolution = period.find('ns:resolution', ns).text
             start = datetime.fromisoformat(period.find('ns:timeInterval/ns:start', ns).text.replace('Z', '+00:00'))
             end = datetime.fromisoformat(period.find('ns:timeInterval/ns:end', ns).text.replace('Z', '+00:00'))
-            step = timedelta(minutes=15 if resolution == 'PT15M' else 60)
+            step = _resolution_step(resolution)
 
             points = period.findall('ns:Point', ns)
             for timestamp, quantity in _expand_points(points, ns, start, step, end, cfg['value_tag']):
@@ -174,8 +188,8 @@ def parse_cross_border_capacity(root: ET.Element, zone: str) -> list[CrossBorder
     return records
 
 
-def parse_zone_physical_flows(root: ET.Element, zone: str) -> list[ZonePhysicalFlow]:
-    cfg = QUERY_CONFIGS['zone_physical_flows']
+def parse_zone_physical_flow(root: ET.Element, zone: str) -> list[ZonePhysicalFlow]:
+    cfg = QUERY_CONFIGS['zone_physical_flow']
     ns = {'ns': cfg['namespace']}
     records = []
 
@@ -188,7 +202,7 @@ def parse_zone_physical_flows(root: ET.Element, zone: str) -> list[ZonePhysicalF
             resolution = period.find('ns:resolution', ns).text
             start = datetime.fromisoformat(period.find('ns:timeInterval/ns:start', ns).text.replace('Z', '+00:00'))
             end = datetime.fromisoformat(period.find('ns:timeInterval/ns:end', ns).text.replace('Z', '+00:00'))
-            step = timedelta(minutes=15 if resolution == 'PT15M' else 60)
+            step = _resolution_step(resolution)
 
             points = period.findall('ns:Point', ns)
             for timestamp, quantity in _expand_points(points, ns, start, step, end, cfg['value_tag']):

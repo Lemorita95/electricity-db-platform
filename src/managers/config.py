@@ -111,7 +111,7 @@ QUERY_CONFIGS = {
         'curveType': 'A03',
         'value_tag': 'ns:quantity',
     },
-    'zone_physical_flows': {
+    'zone_physical_flow': {
     'documentType': 'A11',
     'namespace': 'urn:iec62325.351:tc57wg16:451-3:publicationdocument:7:0',
     'curveType': 'A03',

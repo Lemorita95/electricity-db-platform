@@ -18,8 +18,8 @@ def _float_or_none(value):
 
 
 def _parse_time(value: str) -> datetime:
-    if value is None:
-        return None
+    if not value:
+         return None
     if value.endswith('Z'):
         value = value[:-1] + '+00:00'
     return datetime.fromisoformat(value)
