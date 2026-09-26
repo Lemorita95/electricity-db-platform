@@ -47,11 +47,34 @@ GEN_UNITS_XML = """<Configuration_MarketDocument xmlns="urn:iec62325.351:tc57wg1
   </TimeSeries>
 </Configuration_MarketDocument>"""
 
+EIC_NS = "urn:iec62325.351:tc57wg16:451-n:eicdocument:1:2"
+
+# a control-area code (no parent/responsible) and a generation unit (has both),
+# in one document — exercises both shapes and get_eic_code's full path in one go
+EIC_MIXED_XML = f"""<EIC_MarketDocument xmlns="{EIC_NS}">
+  <EICCode_MarketDocument>
+    <mRID>10Y1001A1001A44P</mRID>
+    <long_Names.name>Nordpool control area SE3</long_Names.name>
+    <display_Names.name>SE3</display_Names.name>
+    <Function_Names><name>Control area</name></Function_Names>
+    <Function_Names><name>Bidding zone</name></Function_Names>
+  </EICCode_MarketDocument>
+  <EICCode_MarketDocument>
+    <mRID>17W000000460346Y</mRID>
+    <long_Names.name>GROUPE 02 DE LA CENTRALE HYDRAULIQUE DE MAREGES</long_Names.name>
+    <display_Names.name>FR_LA-MAREGES-G2</display_Names.name>
+    <eICParent_MarketDocument.mRID>17W100P100P0328B</eICParent_MarketDocument.mRID>
+    <eICResponsible_MarketParticipant.mRID>17X100A100P0001V</eICResponsible_MarketParticipant.mRID>
+    <Function_Names><name>Generation Unit</name></Function_Names>
+  </EICCode_MarketDocument>
+</EIC_MarketDocument>"""
+
 
 def test_parse_price_returns_a_row_per_point():
     records = ep.parse_price(ET.fromstring(PRICE_XML), "SE3")
     assert [r.price for r in records] == [45.32, 50.10]
     assert records[0].zone == "SE3"
+    assert records[0].fetched_at.tzinfo is not None  # auto-populated, tz-aware
 
 
 def test_parse_price_handles_pt30m_resolution():
@@ -81,6 +104,30 @@ def test_parse_generation_units_nests_units_under_the_plant():
     assert records[0].resource_name == "Test Plant"
     assert len(records[0].units) == 1
     assert records[0].units[0].unit_mrid == "17W100000000UN01"
+
+
+def test_get_eic_code_downloads_and_parses():
+    resp = mock.Mock(spec=requests.Response, status_code=200, content=EIC_MIXED_XML.encode())
+    resp.raise_for_status.return_value = None
+    progress_messages = []
+
+    with mock.patch.object(ee.requests, "get", return_value=resp) as fake_get:
+        records = ee.get_eic_code(progress_callback=progress_messages.append)
+
+    assert fake_get.call_args.args[0] == "https://eepublicdownloads.blob.core.windows.net/cio-lio/xml/allocated-eic-codes.xml"
+    assert progress_messages  # sync.py's cursor dispatch relies on this firing
+    assert len(records) == 2
+
+    control_area, gen_unit = records
+    assert control_area.eic_code == "10Y1001A1001A44P"
+    assert control_area.functions == ["Control area", "Bidding zone"]
+    assert control_area.eic_parent is None  # most codes have no parent/responsible party
+    assert control_area.eic_responsible is None
+
+    assert gen_unit.eic_code == "17W000000460346Y"
+    assert gen_unit.display_name == "FR_LA-MAREGES-G2"
+    assert gen_unit.eic_parent == "17W100P100P0328B"  # ...but generation units do
+    assert gen_unit.eic_responsible == "17X100A100P0001V"
 
 
 def test_get_price_builds_expected_params():

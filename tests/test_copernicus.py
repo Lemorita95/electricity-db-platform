@@ -39,6 +39,7 @@ def test_parse_weather_maps_a_csv_row_to_a_record():
     assert len(records) == 1
     assert records[0].zone == "SE3"
     assert records[0].fdir == 120.5
+    assert records[0].fetched_at.tzinfo is not None  # auto-populated, tz-aware
 
 
 def test_parse_weather_skips_a_blank_valid_time():
