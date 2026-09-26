@@ -1,4 +1,4 @@
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Optional
 from sqlmodel import SQLModel, Field
 from sqlalchemy import UniqueConstraint, Column
@@ -17,6 +17,11 @@ class Price(SQLModel, table=True):
     resolution: str
     price: float
     currency: str
+
+    fetched_at: datetime = Field(
+        default_factory=lambda: datetime.now(timezone.utc),
+        sa_column=Column(TIMESTAMP(timezone=True), nullable=False),
+    )
 
     __table_args__ = (
         UniqueConstraint('zone', 'timestamp', name='uq_price_zone_timestamp'),
