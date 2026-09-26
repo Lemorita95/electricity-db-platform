@@ -7,3 +7,4 @@ from master.db.models.ProductionResource import ProductionResource
 from master.db.models.GeneratingUnit import GeneratingUnit
 from master.db.models.CrossBorderCapacity import CrossBorderCapacity
 from master.db.models.ZonePhysicalFlow import ZonePhysicalFlow
+from master.db.models.EicCode import EicCode

@@ -5,7 +5,7 @@ from datetime import date, datetime, timedelta
 
 from managers.config import QUERY_CONFIGS
 from master.db.models import Price, Demand, ProductionResource, GeneratingUnit, \
-    CrossBorderCapacity, ZonePhysicalFlow
+    CrossBorderCapacity, ZonePhysicalFlow, EicCode
 from master.db.queries import RESOLUTION_MAP
 
 
@@ -219,14 +219,21 @@ def parse_zone_physical_flow(root: ET.Element, zone: str) -> list[ZonePhysicalFl
     return records
 
 
-def parse_eic_code(root: ET.Element, function_filter: str) -> list[dict]:
+def parse_eic_code(root: ET.Element, function_filter: str = None) -> list[EicCode]:
     ns = {'ns': 'urn:iec62325.351:tc57wg16:451-n:eicdocument:1:2'}
     records = []
     for eic_elem in root.findall('ns:EICCode_MarketDocument', ns):
-        print(eic_elem.find('ns:mRID', ns).text)
-        print(eic_elem.find('ns:long_Names.name', ns).text)
-        
-        function_names = eic_elem.findall("ns:Function_Names", ns)
-        print([f.find("ns:name", ns).text for f in function_names])
+        functions = [_text(f.find('ns:name', ns)) for f in eic_elem.findall('ns:Function_Names', ns)]
+        if function_filter and function_filter not in functions:
+            continue
+
+        records.append(EicCode(
+            eic_code=_text(eic_elem.find('ns:mRID', ns)),
+            long_name=_text(eic_elem.find('ns:long_Names.name', ns)),
+            display_name=_text(eic_elem.find('ns:display_Names.name', ns)),
+            eic_parent=_text(eic_elem.find('ns:eICParent_MarketDocument.mRID', ns)),
+            eic_responsible=_text(eic_elem.find('ns:eICResponsible_MarketParticipant.mRID', ns)),
+            functions=functions,
+        ))
 
     return records

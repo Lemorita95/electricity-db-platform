@@ -139,9 +139,15 @@ def get_zone_physical_flow(key: str, start: datetime, end: datetime, progress_ca
     return all_results
 
 
-def get_eic_code(function_filter: str = None) -> list:
+def get_eic_code(key=None, start=None, function_filter: str = None, progress_callback=None) -> list:
+    '''
+        global registry download, not scoped to a zone/key — `key`/`start` accepted
+        only so this matches sync.py's cursor fetch_fn(key, start, progress_callback) shape.
+    '''
+    if progress_callback:
+        progress_callback("eic codes — downloading full registry")
     url = "https://eepublicdownloads.blob.core.windows.net/cio-lio/xml/allocated-eic-codes.xml"
-    response = requests.get(url, timeout=30)
+    response = requests.get(url, timeout=120)
     response.raise_for_status()
     root = ET.fromstring(response.content)
     return parse_eic_code(root, function_filter)

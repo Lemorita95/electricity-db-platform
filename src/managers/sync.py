@@ -7,11 +7,11 @@ from typing import Callable, Type, Literal
 from master.db.connection import engine
 from master.db.queries import upsert_timeseries, get_timestamps, upsert_graph
 from master.db.models import Price, Demand, ProductionResource, Weather, \
-    CrossBorderCapacity, ZonePhysicalFlow
+    CrossBorderCapacity, ZonePhysicalFlow, EicCode
 
 from managers.config import NORDICS_CODES, LINKS
 from managers import get_price, get_demand, get_generation_units, get_era5, \
-    get_cross_border_capacity, get_zone_physical_flow
+    get_cross_border_capacity, get_zone_physical_flow, get_eic_code
 
 
 @dataclass(frozen=True)
@@ -32,6 +32,7 @@ SOURCES: dict[str, Source] = {
     'cross_border_capacity': Source(CrossBorderCapacity, get_cross_border_capacity, upsert_timeseries, keys=LINKS),
     'zone_physical_flow': Source(ZonePhysicalFlow, get_zone_physical_flow, upsert_timeseries, keys=LINKS),
     'copernicus': Source(Weather, get_era5, upsert_timeseries, fetch_kind='range', keys=NORDICS_CODES),
+    'eic_codes': Source(EicCode, get_eic_code, upsert_timeseries, fetch_kind='cursor', keys={'ALL': {}}),
 }
 
 
