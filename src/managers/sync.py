@@ -30,7 +30,7 @@ SOURCES: dict[str, Source] = {
     'entsoe_demand': Source(Demand, get_demand, upsert_timeseries, fetch_kind='range', keys=NORDICS_CODES),
     'generation_units': Source(ProductionResource, get_generation_units, upsert_graph, fetch_kind='cursor', keys=NORDICS_CODES),
     'cross_border_capacity': Source(CrossBorderCapacity, get_cross_border_capacity, upsert_timeseries, keys=LINKS),
-    'zone_physical_flows': Source(ZonePhysicalFlow, get_zone_physical_flow, upsert_timeseries, keys=LINKS),
+    'zone_physical_flow': Source(ZonePhysicalFlow, get_zone_physical_flow, upsert_timeseries, keys=LINKS),
     'copernicus': Source(Weather, get_era5, upsert_timeseries, fetch_kind='range', keys=NORDICS_CODES),
 }
 
