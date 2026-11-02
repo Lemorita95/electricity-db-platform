@@ -1,5 +1,6 @@
 from datetime import datetime
 from concurrent.futures import ThreadPoolExecutor, as_completed
+from typing import Iterator
 
 from managers.config import NORDICS_CODES, QUERY_CONFIGS
 from master.db.models import Irradiance
@@ -37,11 +38,11 @@ def _fetch(collection, dtstart: datetime, dtend: datetime, bbox: str, var_type: 
     ))
 
 
-def get_sarah3(zone: str, start: datetime, end: datetime, progress_callback=None) -> list[Irradiance]:
+def get_sarah3(zone: str, start: datetime, end: datetime, progress_callback=None) -> Iterator[list[Irradiance]]:
+    '''yields one list per 30-day chunk'''
     collection = eumet_client.get_collection(cfg['collectionID'])
     bbox = _point_bbox(zone)
     chunks = chunk_by_period(start, end, '30d')
-    all_results = []
 
     for i, (chunk_start, chunk_end) in enumerate(chunks, 1):
         if progress_callback:
@@ -64,6 +65,4 @@ def get_sarah3(zone: str, start: datetime, end: datetime, progress_callback=None
             for future in as_completed(futures):
                 chunk_result.extend(future.result())
 
-        all_results.extend(chunk_result)
-
-    return all_results
+        yield chunk_result

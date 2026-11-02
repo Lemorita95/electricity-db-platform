@@ -3,6 +3,7 @@ from concurrent.futures import ThreadPoolExecutor, as_completed
 from sqlmodel import Session, SQLModel
 from dataclasses import dataclass, field
 from typing import Callable, Type, Literal
+from collections.abc import Iterator
 
 from master.db.connection import engine
 from master.db.queries import upsert_timeseries, get_timestamps, upsert_graph
@@ -50,20 +51,34 @@ def _get_missing_ranges(key, start, end, src) -> list[dict]:
     return status['missing_ranges']
 
 
+def _as_batches(result):
+    '''an iterator must yield lists of records (one list per batch); anything else is a single batch'''
+    if isinstance(result, Iterator):
+        yield from result
+    else:
+        yield result
+
+
 def _fetch_range(key, start, end, src, cb):
     missing_ranges = _get_missing_ranges(key, start, end, src)
+
     if not missing_ranges:
         return None
-    records = []
-    for gap in missing_ranges:
-        batch = src.fetch_fn(key, gap["start"], gap["end"], progress_callback=cb)
-        if batch:
-            records.extend(batch)
-    return records
+
+    def batches():
+        for gap in missing_ranges:
+            result = src.fetch_fn(
+                key, gap["start"], gap["end"],
+                progress_callback=cb
+            )
+            yield from _as_batches(result)
+
+    return batches()
 
 
 def _fetch_cursor(key, start, src, cb):
-    return src.fetch_fn(key, start, progress_callback=cb)
+    result = src.fetch_fn(key, start, progress_callback=cb)
+    return _as_batches(result)
 
 
 def fetch_key_source(key: str, start: datetime, end: datetime, source_name: str, progress_callback=None) -> None:
@@ -73,27 +88,40 @@ def fetch_key_source(key: str, start: datetime, end: datetime, source_name: str,
         if progress_callback:
             progress_callback(msg)
 
+    saved_chunks = 0
+
     try:
         if src.fetch_kind == 'cursor':
-            records = _fetch_cursor(key, start, src, cb)
+            batches = _fetch_cursor(key, start, src, cb)
         else:
-            records = _fetch_range(key, start, end, src, cb)
-            if records is None:
+            batches = _fetch_range(key, start, end, src, cb)
+
+            if batches is None:
                 if progress_callback:
                     progress_callback("up-to-date")
                 return
 
-        if records:
+        for records in batches:
+            if not records:
+                continue
+
             with Session(engine) as session:
                 src.save_fn(session, src.model, records)
-            if progress_callback:
-                progress_callback("done")
-        else:
-            if progress_callback:
-                progress_callback("up-to-date")
+
+            saved_chunks += 1
+
+        if progress_callback:
+            progress_callback("done" if saved_chunks else "up-to-date")
+
     except Exception as e:
         if progress_callback:
-            progress_callback(f"failed: {e}")
+            if saved_chunks:
+                progress_callback(
+                    f"failed after saving {saved_chunks} chunks: {e}"
+                )
+            else:
+                progress_callback(f"failed: {e}")
+        e.saved_chunks = saved_chunks  # read by sync() for the per-key result
         raise
 
 
@@ -122,6 +150,7 @@ def sync(source: str, start: datetime | None = None, end: datetime | None = None
                 future.result()
                 results[key] = 'done'
             except Exception as e:
-                results[key] = f"failed: {e}"
+                saved = getattr(e, 'saved_chunks', 0)
+                results[key] = f"failed after saving {saved} chunks: {e}" if saved else f"failed: {e}"
 
     return results

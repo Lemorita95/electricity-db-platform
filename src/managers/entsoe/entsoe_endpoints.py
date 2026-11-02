@@ -1,4 +1,5 @@
 from datetime import datetime
+from typing import Iterator
 import requests
 import xml.etree.ElementTree as ET
 
@@ -31,12 +32,11 @@ def _paginate(params, parse_fn, zone):
     return all_results
 
 
-def get_price(zone: str, start: datetime, end: datetime, progress_callback=None) -> list[Price]:
+def get_price(zone: str, start: datetime, end: datetime, progress_callback=None) -> Iterator[list[Price]]:
     '''
-        resolve price for a single 'key' (zone)
+        resolve price for a single 'key' (zone), yielding one list per 30-day chunk
     '''
     cfg = QUERY_CONFIGS['price']
-    all_results = []
     chunks = chunk_by_period(start, end, '30d')
     for i, (chunk_start, chunk_end) in enumerate(chunks, 1):
         if progress_callback:
@@ -49,16 +49,14 @@ def get_price(zone: str, start: datetime, end: datetime, progress_callback=None)
             'periodStart': chunk_start.strftime('%Y%m%d%H%M'),
             'periodEnd': chunk_end.strftime('%Y%m%d%H%M'),
         }
-        all_results.extend(_paginate(params, parse_price, zone))
-    return all_results
+        yield _paginate(params, parse_price, zone)
 
 
-def get_demand(zone: str, start: datetime, end: datetime, progress_callback=None) -> list[Demand]:
+def get_demand(zone: str, start: datetime, end: datetime, progress_callback=None) -> Iterator[list[Demand]]:
     '''
-        resolve demand for a single 'key' (zone)
+        resolve demand for a single 'key' (zone), yielding one list per 30-day chunk
     '''
     cfg = QUERY_CONFIGS['demand']
-    all_results = []
     chunks = chunk_by_period(start, end, '30d')
     for i, (chunk_start, chunk_end) in enumerate(chunks, 1):
         if progress_callback:
@@ -70,8 +68,7 @@ def get_demand(zone: str, start: datetime, end: datetime, progress_callback=None
             'periodStart': chunk_start.strftime('%Y%m%d%H%M'),
             'periodEnd': chunk_end.strftime('%Y%m%d%H%M'),
         }
-        all_results.extend(_fetch(params, parse_demand, zone))
-    return all_results
+        yield _fetch(params, parse_demand, zone)
 
 
 def get_generation_units(zone: str, start: datetime, progress_callback=None) -> list[ProductionResource]:
@@ -93,13 +90,12 @@ def get_generation_units(zone: str, start: datetime, progress_callback=None) -> 
     return _fetch(params, parse_generation_units, zone)
 
 
-def get_cross_border_capacity(key: str, start: datetime, end: datetime, progress_callback=None) -> list[CrossBorderCapacity]:
+def get_cross_border_capacity(key: str, start: datetime, end: datetime, progress_callback=None) -> Iterator[list[CrossBorderCapacity]]:
     '''
-        resolve cross border capacity for a single 'key' (link)
+        resolve cross border capacity for a single 'key' (link), yielding one list per 30-day chunk
     '''
     cfg = QUERY_CONFIGS['cross_border_capacity']
     link = LINKS[key]
-    all_results = []
     chunks = chunk_by_period(start, end, '30d')
     for i, (chunk_start, chunk_end) in enumerate(chunks, 1):
         if progress_callback:
@@ -112,17 +108,15 @@ def get_cross_border_capacity(key: str, start: datetime, end: datetime, progress
             'periodStart': chunk_start.strftime('%Y%m%d%H%M'),
             'periodEnd': chunk_end.strftime('%Y%m%d%H%M'),
         }
-        all_results.extend(_fetch(params, parse_cross_border_capacity, key))
-    return all_results
+        yield _fetch(params, parse_cross_border_capacity, key)
 
 
-def get_zone_physical_flow(key: str, start: datetime, end: datetime, progress_callback=None) -> list[ZonePhysicalFlow]:
+def get_zone_physical_flow(key: str, start: datetime, end: datetime, progress_callback=None) -> Iterator[list[ZonePhysicalFlow]]:
     '''
-        resolve zone physical flow for a single 'key' (link)
+        resolve zone physical flow for a single 'key' (link), yielding one list per 30-day chunk
     '''
     cfg = QUERY_CONFIGS['zone_physical_flow']
     link = LINKS[key]
-    all_results = []
     chunks = chunk_by_period(start, end, '30d')
     for i, (chunk_start, chunk_end) in enumerate(chunks, 1):
         if progress_callback:
@@ -135,8 +129,7 @@ def get_zone_physical_flow(key: str, start: datetime, end: datetime, progress_ca
             'periodStart': chunk_start.strftime('%Y%m%d%H%M'),
             'periodEnd': chunk_end.strftime('%Y%m%d%H%M'),
         }
-        all_results.extend(_fetch(params, parse_zone_physical_flow, key))
-    return all_results
+        yield _fetch(params, parse_zone_physical_flow, key)
 
 
 def get_eic_code(key=None, start=None, function_filter: str = None, progress_callback=None) -> list:

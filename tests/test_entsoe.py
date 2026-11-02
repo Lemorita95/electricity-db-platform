@@ -138,7 +138,7 @@ def test_get_price_builds_expected_params():
         return ET.fromstring(f'<Publication_MarketDocument xmlns="{NS}"/>')
 
     with mock.patch.object(ee.entsoe_client, "get", side_effect=fake_get):
-        ee.get_price("SE3", datetime(2025, 6, 1), datetime(2025, 6, 2))
+        list(ee.get_price("SE3", datetime(2025, 6, 1), datetime(2025, 6, 2)))
 
     assert captured["documentType"] == QUERY_CONFIGS["price"]["documentType"]
     assert captured["in_Domain"] == NORDICS_CODES["SE3"]["eic"]
@@ -159,7 +159,7 @@ def test_get_zone_physical_flow_swaps_domains_by_link_direction():
         )
 
     with mock.patch.object(ee.entsoe_client, "get", side_effect=fake_get):
-        ee.get_zone_physical_flow(key, datetime(2025, 6, 1), datetime(2025, 6, 2))
+        list(ee.get_zone_physical_flow(key, datetime(2025, 6, 1), datetime(2025, 6, 2)))
 
     assert captured["in_Domain"] == EIC_CODES[link["destination"]]["eic"]
     assert captured["out_Domain"] == EIC_CODES[link["origin"]]["eic"]

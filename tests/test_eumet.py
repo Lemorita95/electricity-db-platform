@@ -20,7 +20,7 @@ def test_get_sarah3_searches_each_configured_var_type():
     fake_collection.search.return_value = []
 
     with mock.patch.object(ee.eumet_client, "get_collection", return_value=fake_collection):
-        ee.get_sarah3("SE3", datetime(2025, 6, 1), datetime(2025, 6, 2))
+        list(ee.get_sarah3("SE3", datetime(2025, 6, 1), datetime(2025, 6, 2)))
 
     called_var_types = {c.kwargs["type"] for c in fake_collection.search.call_args_list}
     assert called_var_types == set(QUERY_CONFIGS["eumet"]["var_type"])

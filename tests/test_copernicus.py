@@ -64,7 +64,7 @@ def test_get_era5_builds_expected_request():
 
     with mock.patch.object(ce.copernicus_client, "retrieve", side_effect=fake_retrieve), \
          mock.patch.object(ce, "parse_weather", return_value=[]):
-        ce.get_era5("SE3", datetime(2025, 6, 1), datetime(2025, 6, 2))
+        list(ce.get_era5("SE3", datetime(2025, 6, 1), datetime(2025, 6, 2)))
 
     assert captured["dataset"] == QUERY_CONFIGS["copernicus"]["dataset"]
     assert captured["request"]["location"]["latitude"] == NORDICS_CODES["SE3"]["lat"]

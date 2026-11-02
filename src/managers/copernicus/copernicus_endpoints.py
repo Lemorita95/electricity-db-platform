@@ -1,5 +1,6 @@
 from copy import deepcopy
 from datetime import datetime
+from typing import Iterator
 
 from managers.config import NORDICS_CODES, QUERY_CONFIGS
 from master.db.models import Weather
@@ -23,8 +24,8 @@ def _build_request(zone: str, start: datetime, end: datetime) -> dict:
     return request
 
 
-def get_era5(zone: str, start: datetime, end: datetime, progress_callback=None) -> list[Weather]:
-    all_results = []
+def get_era5(zone: str, start: datetime, end: datetime, progress_callback=None) -> Iterator[list[Weather]]:
+    '''yields one list per 30-day chunk'''
     chunks = chunk_by_period(start, end, '30d')
 
     for i, (chunk_start, chunk_end) in enumerate(chunks, 1):
@@ -35,6 +36,4 @@ def get_era5(zone: str, start: datetime, end: datetime, progress_callback=None) 
 
         request = _build_request(zone, chunk_start, chunk_end)
         results = copernicus_client.retrieve(cfg['dataset'], request)
-        all_results.extend(parse_weather(results, zone))
-
-    return all_results
+        yield parse_weather(results, zone)
