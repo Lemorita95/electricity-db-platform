@@ -20,6 +20,9 @@ down-all: down infra-down
 logs:
 	docker-compose logs -f app
 
+mcp:
+	PYTHONPATH=src .venv/bin/python -m mcp_server
+
 migrate: infra-up build
 	docker-compose run --rm migrate; \
 	status=$$?; \

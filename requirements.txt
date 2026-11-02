@@ -11,7 +11,7 @@ ecmwf-datastores-client==0.5.1
 eumdac==3.1.1
 fastapi==0.136.3
 h11==0.16.0
-idna==3.17
+idna==3.20
 Jinja2==3.1.6
 MarkupSafe==3.0.3
 multiurl==0.3.7
@@ -39,5 +39,6 @@ urllib3==2.7.0
 uvicorn==0.48.0
 xarray==2026.4.0
 pytest==9.0.3
-httpx2==2.3.0
+httpx2==2.16.0
+mcp==2.3.0
 alembic==1.18.4
