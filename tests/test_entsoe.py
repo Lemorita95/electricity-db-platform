@@ -98,6 +98,26 @@ def test_parse_price_handles_pt30m_resolution():
     assert [r.timestamp.minute for r in records] == [0, 30, 0]
 
 
+def test_parse_price_reads_every_period_of_a_timeseries():
+    xml = f"""<Publication_MarketDocument xmlns="{NS}">
+      <TimeSeries>
+        <currency_Unit.name>EUR</currency_Unit.name>
+        <Period>
+          <timeInterval><start>2025-06-10T00:00Z</start><end>2025-06-10T01:00Z</end></timeInterval>
+          <resolution>PT60M</resolution>
+          <Point><position>1</position><price.amount>10</price.amount></Point>
+        </Period>
+        <Period>
+          <timeInterval><start>2025-06-10T01:00Z</start><end>2025-06-10T02:00Z</end></timeInterval>
+          <resolution>PT60M</resolution>
+          <Point><position>1</position><price.amount>20</price.amount></Point>
+        </Period>
+      </TimeSeries>
+    </Publication_MarketDocument>"""
+    records = ep.parse_price(ET.fromstring(xml), "SE3")
+    assert [(r.timestamp.hour, r.price) for r in records] == [(0, 10.0), (1, 20.0)]
+
+
 def test_parse_generation_units_nests_units_under_the_plant():
     records = ep.parse_generation_units(ET.fromstring(GEN_UNITS_XML), "SE3")
     assert len(records) == 1
@@ -176,8 +196,38 @@ def test_client_returns_parsed_xml_on_success():
 
 def test_client_raises_on_error_response():
     client = EntsoClient()
-    resp = mock.Mock(spec=requests.Response, status_code=400)
-    resp.raise_for_status.side_effect = requests.HTTPError("bad request")
+    resp = mock.Mock(spec=requests.Response, status_code=400, url="https://x/api")
     with mock.patch.object(client.session, "get", return_value=resp):
         with pytest.raises(requests.HTTPError):
             client.get({"documentType": "A44"})
+
+
+def test_client_retries_server_errors_then_succeeds():
+    client = EntsoClient()
+    failed = mock.Mock(spec=requests.Response, status_code=599, url="https://x/api")
+    ok = mock.Mock(spec=requests.Response, status_code=200, content=b"<ok/>", url="https://x/api")
+    with mock.patch("managers.entsoe.entsoe_client.time.sleep") as sleep, \
+         mock.patch.object(client.session, "get", side_effect=[failed, failed, ok]):
+        assert client.get({"documentType": "A44"}).tag == "ok"
+    assert [c.args[0] for c in sleep.call_args_list if c.args[0] >= 1] == [10, 20]
+
+
+@mock.patch("managers.entsoe.entsoe_client.ENTSOE_API_KEY", "secret-token")
+def test_client_errors_never_carry_the_security_token():
+    client = EntsoClient()
+    url = "https://web-api.tp.entsoe.eu/api?securityToken=secret-token&documentType=A44"
+
+    bad_request = mock.Mock(spec=requests.Response, status_code=400, url=url)
+    with mock.patch.object(client.session, "get", return_value=bad_request):
+        with pytest.raises(requests.HTTPError) as client_error:
+            client.get({"documentType": "A44"})
+
+    connection_error = requests.ConnectionError("Max retries exceeded with url: /api?securityToken=secret-token")
+    with mock.patch("managers.entsoe.entsoe_client.time.sleep"), \
+         mock.patch.object(client.session, "get", side_effect=connection_error):
+        with pytest.raises(Exception) as server_error:
+            client.get({"documentType": "A44"})
+
+    for error in (client_error.value, server_error.value):
+        assert "secret-token" not in str(error)
+        assert "securityToken=***" in str(error)

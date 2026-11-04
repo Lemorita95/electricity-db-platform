@@ -72,22 +72,23 @@ def parse_price(root: ET.Element, zone: str) -> list[Price]:
     records = []
 
     for ts in root.findall('ns:TimeSeries', ns):
-        period = ts.find('ns:Period', ns)
-        resolution = period.find('ns:resolution', ns).text
-        start = datetime.fromisoformat(period.find('ns:timeInterval/ns:start', ns).text.replace('Z', '+00:00'))
-        end = datetime.fromisoformat(period.find('ns:timeInterval/ns:end', ns).text.replace('Z', '+00:00'))
         currency = ts.find('ns:currency_Unit.name', ns).text
-        step = _resolution_step(resolution)
 
-        points = period.findall('ns:Point', ns)
-        for timestamp, price in _expand_points(points, ns, start, step, end, cfg['value_tag']):
-            records.append(Price(
-                zone=zone,
-                timestamp=timestamp,
-                resolution=resolution,
-                price=price,
-                currency=currency,
-            ))
+        for period in ts.findall('ns:Period', ns):
+            resolution = period.find('ns:resolution', ns).text
+            start = datetime.fromisoformat(period.find('ns:timeInterval/ns:start', ns).text.replace('Z', '+00:00'))
+            end = datetime.fromisoformat(period.find('ns:timeInterval/ns:end', ns).text.replace('Z', '+00:00'))
+            step = _resolution_step(resolution)
+
+            points = period.findall('ns:Point', ns)
+            for timestamp, price in _expand_points(points, ns, start, step, end, cfg['value_tag']):
+                records.append(Price(
+                    zone=zone,
+                    timestamp=timestamp,
+                    resolution=resolution,
+                    price=price,
+                    currency=currency,
+                ))
 
     return records
 
