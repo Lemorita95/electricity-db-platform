@@ -1,3 +1,4 @@
+import threading
 from datetime import datetime, timezone, timedelta
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from sqlmodel import Session, SQLModel
@@ -22,19 +23,28 @@ class Source:
     save_fn: Callable
     fetch_kind: Literal['range', 'cursor'] = 'range'
     keys: dict = field(default_factory=lambda: NORDICS_CODES)
+    merge_gaps: timedelta | None = None  # gaps this close are fetched as one range; None fetches each gap exactly
+
+
+# ENTSO-E answers even a 15-min window with the whole day, in ~15 s
+ENTSOE_MERGE_GAPS = timedelta(days=1)
+
+
+def _entsoe(model, fetch_fn, keys=NORDICS_CODES) -> Source:
+    return Source(model, fetch_fn, upsert_timeseries, keys=keys, merge_gaps=ENTSOE_MERGE_GAPS)
 
 
 SOURCES: dict[str, Source] = {
-    # ENDPOINT_NAME: Source(DB_MODEL, FETCH_FN, SAVE_FN, FETCH_FIND, KEYS)
+    # ENDPOINT_NAME: Source(DB_MODEL, FETCH_FN, SAVE_FN, FETCH_KIND, KEYS, MERGE_GAPS)
 
-    'entsoe_price': Source(Price, get_price, upsert_timeseries, fetch_kind='range', keys=NORDICS_CODES),
-    'entsoe_demand': Source(Demand, get_demand, upsert_timeseries, fetch_kind='range', keys=NORDICS_CODES),
-    'generation_units': Source(ProductionResource, get_generation_units, upsert_graph, fetch_kind='cursor', keys=NORDICS_CODES),
-    'cross_border_capacity': Source(CrossBorderCapacity, get_cross_border_capacity, upsert_timeseries, keys=LINKS),
-    'zone_physical_flow': Source(ZonePhysicalFlow, get_zone_physical_flow, upsert_timeseries, keys=LINKS),
-    'copernicus': Source(Weather, get_era5, upsert_timeseries, fetch_kind='range', keys=NORDICS_CODES),
+    'entsoe_price': _entsoe(Price, get_price),
+    'entsoe_demand': _entsoe(Demand, get_demand),
+    'cross_border_capacity': _entsoe(CrossBorderCapacity, get_cross_border_capacity, keys=LINKS),
+    'zone_physical_flow': _entsoe(ZonePhysicalFlow, get_zone_physical_flow, keys=LINKS),
+    'generation_units': Source(ProductionResource, get_generation_units, upsert_graph, fetch_kind='cursor'),
+    'copernicus': Source(Weather, get_era5, upsert_timeseries),
     'eic_codes': Source(EicCode, get_eic_code, upsert_timeseries, fetch_kind='cursor', keys={'ALL': {}}),
-    'jao_binding_cnec': Source(BindingCnec, get_binding_cnecs, upsert_graph, fetch_kind='range', keys={'NORDIC': {}}),
+    'jao_binding_cnec': Source(BindingCnec, get_binding_cnecs, upsert_graph, keys={'NORDIC': {}}),
 }
 
 
@@ -60,8 +70,24 @@ def _as_batches(result):
         yield result # for example: get_generation_units
 
 
+def _merge_gaps(gaps: list[dict], max_distance: timedelta) -> list[dict]:
+    '''
+    gaps at most max_distance apart chain into one min(start) -> max(end) range;
+    the stored data in between is fetched again
+    '''
+    merged = []
+    for gap in gaps:
+        if merged and gap["start"] - merged[-1]["end"] <= max_distance:
+            merged[-1] = {"start": merged[-1]["start"], "end": gap["end"]}
+        else:
+            merged.append(dict(gap))
+    return merged
+
+
 def _fetch_range(key, start, end, src, cb):
     missing_ranges = _get_missing_ranges(key, start, end, src)
+    if src.merge_gaps is not None:
+        missing_ranges = _merge_gaps(missing_ranges, src.merge_gaps)
 
     if not missing_ranges:
         return None
@@ -82,7 +108,9 @@ def _fetch_cursor(key, start, src, cb):
     return _as_batches(result)
 
 
-def fetch_key_source(key: str, start: datetime, end: datetime, source_name: str, progress_callback=None) -> None:
+def fetch_key_source(key: str, start: datetime, end: datetime, source_name: str, progress_callback=None,
+                     cancel_event: threading.Event | None = None) -> None:
+    '''cancel_event is checked before the first request and after each saved batch'''
     src = SOURCES[source_name]
 
     def cb(msg):
@@ -90,6 +118,11 @@ def fetch_key_source(key: str, start: datetime, end: datetime, source_name: str,
             progress_callback(msg)
 
     saved_chunks = 0
+    cancelled = lambda: cancel_event is not None and cancel_event.is_set()
+
+    if cancelled():
+        cb("cancelled")
+        return
 
     try:
         if src.fetch_kind == 'cursor':
@@ -103,13 +136,14 @@ def fetch_key_source(key: str, start: datetime, end: datetime, source_name: str,
                 return
 
         for records in batches:
-            if not records:
-                continue
+            if records:
+                with Session(engine) as session:
+                    src.save_fn(session, src.model, records)
+                saved_chunks += 1
 
-            with Session(engine) as session:
-                src.save_fn(session, src.model, records)
-
-            saved_chunks += 1
+            if cancelled():
+                cb(f"cancelled after saving {saved_chunks} chunks")
+                return
 
         if progress_callback:
             progress_callback("done" if saved_chunks else "up-to-date")
@@ -126,7 +160,8 @@ def fetch_key_source(key: str, start: datetime, end: datetime, source_name: str,
         raise
 
 
-def sync(source: str, start: datetime | None = None, end: datetime | None = None, progress_callback=None) -> dict:
+def sync(source: str, start: datetime | None = None, end: datetime | None = None, progress_callback=None,
+         cancel_event: threading.Event | None = None) -> dict:
     if source not in SOURCES:
         raise ValueError(f"Unsupported source: {source}")
 
@@ -142,7 +177,7 @@ def sync(source: str, start: datetime | None = None, end: datetime | None = None
         futures = {}
         for key in src.keys:
             cb = (lambda msg, k=key: progress_callback(k, msg, source)) if progress_callback else None
-            future = executor.submit(fetch_key_source, key, start, end, source, progress_callback=cb)
+            future = executor.submit(fetch_key_source, key, start, end, source, progress_callback=cb, cancel_event=cancel_event)
             futures[future] = key
 
         for future in as_completed(futures):

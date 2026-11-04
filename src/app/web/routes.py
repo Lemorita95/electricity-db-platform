@@ -12,7 +12,7 @@ from master.db.models import Price, Demand, Weather, ProductionResource, CrossBo
 from master.db.queries import fetch_timeseries, fetch_graph
 from managers.config import NORDICS_CODES, LINKS
 from managers.sync import sync, SOURCES
-from managers import get_copernicus_client, get_entsoe_client
+from managers import get_copernicus_client, get_entsoe_client, get_jao_client
 
 
 BASE = Path(__file__).resolve().parent
@@ -20,6 +20,7 @@ TEMPLATES_DIR = BASE / "templates"
 
 fetch_lock = threading.Lock()
 fetch_status_map: dict[str, dict] = {name: {"status": "idle"} for name in SOURCES}
+cancel_events: dict[str, threading.Event] = {}
 
 router = APIRouter()
 templates = Jinja2Templates(directory=TEMPLATES_DIR)
@@ -143,9 +144,11 @@ def get_weather_snapshot(zone: str, start: datetime, end: datetime, column: str,
 
 def _run_in_background(source: str, start: datetime | None = None, end: datetime | None = None):
     with fetch_lock:
-        if fetch_status_map[source]["status"] == "running":
+        if fetch_status_map[source]["status"] in ("queued", "running", "cancelling"):
             return False
         fetch_status_map[source]["status"] = "queued"
+        fetch_status_map[source].pop("error", None)
+        cancel_event = cancel_events[source] = threading.Event()
 
     def run():
         fetch_status_map[source]["status"] = "running"
@@ -155,8 +158,8 @@ def _run_in_background(source: str, start: datetime | None = None, end: datetime
             fetch_status_map[source]["progress"].setdefault(key, {})[source_name] = msg
 
         try:
-            sync(source=source, start=start, end=end, progress_callback=progress_callback)
-            fetch_status_map[source]["status"] = "done"
+            sync(source=source, start=start, end=end, progress_callback=progress_callback, cancel_event=cancel_event)
+            fetch_status_map[source]["status"] = "cancelled" if cancel_event.is_set() else "done"
         except Exception as e:
             fetch_status_map[source]["status"] = "failed"
             fetch_status_map[source]["error"] = str(e)
@@ -176,6 +179,19 @@ def trigger_fetch(source: str, start: datetime | None = None, end: datetime | No
     return {"status": "started", "source": source}
 
 
+@router.post("/api/fetch/cancel")
+def cancel_fetch(source: str):
+    '''stops the source's sync before its next request; batches already saved are kept'''
+    if source not in fetch_status_map:
+        raise HTTPException(status_code=400, detail=f"Invalid source. Must be one of {list(fetch_status_map)}")
+    with fetch_lock:
+        if fetch_status_map[source]["status"] not in ("queued", "running"):
+            raise HTTPException(status_code=409, detail="No fetch running for this source")
+        cancel_events[source].set()
+        fetch_status_map[source]["status"] = "cancelling"
+    return {"status": "cancelling", "source": source}
+
+
 def _client_rate(get_client) -> int:
     # a client nobody has used yet has made no requests; don't build one just to report that
     return get_client().monitor.rate if get_client.cache_info().currsize else 0
@@ -188,5 +204,6 @@ def fetch_status():
         "rates": {
             "entsoe": _client_rate(get_entsoe_client),
             "copernicus": _client_rate(get_copernicus_client),
+            "jao": _client_rate(get_jao_client),
         },
     }

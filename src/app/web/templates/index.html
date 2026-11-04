@@ -114,7 +114,7 @@
 
   function updateCard(card, data) {
     const status = data.status || 'idle';
-    const isBusy = status === 'running' || status === 'queued';
+    const isBusy = status === 'running' || status === 'queued' || status === 'cancelling';
 
     const badge = card.querySelector('[data-role="badge"]');
     badge.className = `status-badge ${status}`;
@@ -181,7 +181,7 @@
 
   function updateAllCard(card, statusMap) {
     const values = Object.values(statusMap);
-    const busyCount = values.filter(v => v && (v.status === 'running' || v.status === 'queued')).length;
+    const busyCount = values.filter(v => v && (v.status === 'running' || v.status === 'queued' || v.status === 'cancelling')).length;
 
     const badge = card.querySelector('[data-role="badge"]');
     if (busyCount > 0) {
@@ -199,7 +199,7 @@
   }
 
   function anyBusy(statusMap) {
-    return Object.values(statusMap).some(v => v && (v.status === 'running' || v.status === 'queued'));
+    return Object.values(statusMap).some(v => v && (v.status === 'running' || v.status === 'queued' || v.status === 'cancelling'));
   }
 
   let pollTimer = null;
