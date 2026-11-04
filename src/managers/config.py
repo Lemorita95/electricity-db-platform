@@ -14,6 +14,8 @@ EUMDAC_CONSUMER_SECRET = os.getenv("EUMDAC_CONSUMER_SECRET")
 CDS_API_URL = os.getenv("CDS_API_URL")
 CDS_API_KEY = os.getenv("CDS_API_KEY")
 
+JAO_NORDIC_BASE_URL = "https://publicationtool.jao.eu/nordic/api"  # public, no auth
+
 # ''' API QUERY PARAMETERS '''
 EIC_CODES: dict[str, dict] = {
     'SE1':      {'eic': '10Y1001A1001A44P', 'lat': 65.58,   'lon': 22.15},  # Luleå
@@ -137,5 +139,11 @@ QUERY_CONFIGS = {
             ],
             "data_format": "csv",
         }
+    },
+    'jao_binding_cnec': {
+        'dataset': 'fbDomainShadowPrice',
+        'filter': {'hasShadowPrice': True},  # binding CNECs only
+        'take': 1000,  # ceiling per hour, ~10 binding rows are expected
+        'monitoring_file_type': 'FbDomainShadowPrice',
     },
 }

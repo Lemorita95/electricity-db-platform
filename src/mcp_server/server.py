@@ -19,7 +19,7 @@ from sqlmodel import Session, SQLModel, select
 from master.config import READONLY_USER, READONLY_PASSWORD, READONLY_DATABASE_URL
 from master.db.models import (
     Price, Demand, Weather, Irradiance, ProductionResource,
-    CrossBorderCapacity, ZonePhysicalFlow, EicCode,
+    CrossBorderCapacity, ZonePhysicalFlow, EicCode, BindingCnec, CnecPtdf,
 )
 from master.db.queries import fetch_timeseries, fetch_graph
 
@@ -117,6 +117,10 @@ def list_datasets() -> list[dict]:
          "value_columns": [], "description": "ENTSO-E master data of production resources and their units. Use get_generation_units."},
         {"dataset": "eic_code", "table": EicCode.__tablename__,
          "value_columns": [], "description": "ENTSO-E EIC registry. Use lookup_eic."},
+        {"dataset": "binding_cnec", "table": f"{BindingCnec.__tablename__}, {CnecPtdf.__tablename__}",
+         "value_columns": [], "description": "JAO Nordic flow-based binding CNECs per MTU (zone 'NORDIC') with "
+                                            "shadow_price (EUR/MW), ram and flow_fb (MW). Their PTDFs per bidding zone "
+                                            "and HVDC hub are in cnec_ptdf, joined on cnec_id. Use run_sql."},
     ]
     return datasets
 

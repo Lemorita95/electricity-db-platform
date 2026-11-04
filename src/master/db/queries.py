@@ -142,26 +142,29 @@ def upsert_graph(session: Session, model, records: list) -> None:
     key_columns = list(constraint.columns.keys()) # flat into their columns
     rel_name, child_model, fk_attr = _get_child_relationship(model) # get parent-child relationships and foreign key
 
-    rows = [r.model_dump(exclude={'id', rel_name}) for r in records]
-    stmt = insert(model).values(rows)
-    # .returning() for rows actually written
-    stmt = stmt.on_conflict_do_nothing(constraint=constraint.name).returning(model.id, *[getattr(model, c) for c in key_columns])
-    inserted = {tuple(row[1:]): row[0] for row in session.exec(stmt).all()} 
-
     all_children = []
-    for r in records:
-        key = tuple(getattr(r, c) for c in key_columns)
-        if key not in inserted:
-            continue
-        for child in getattr(r, rel_name): # avoid explicitly name the relashionship
-            setattr(child, fk_attr, inserted[key]) # avoid explicitly name the key
-            all_children.append(child)
+    for i in range(0, len(records), BATCH_SIZE):
+        batch = records[i:i + BATCH_SIZE]
+        rows = [r.model_dump(exclude={'id', rel_name}) for r in batch]
+        stmt = insert(model).values(rows)
+        # .returning() for rows actually written
+        stmt = stmt.on_conflict_do_nothing(constraint=constraint.name).returning(model.id, *[getattr(model, c) for c in key_columns])
+        inserted = {tuple(row[1:]): row[0] for row in session.exec(stmt).all()}
+
+        for r in batch:
+            key = tuple(getattr(r, c) for c in key_columns)
+            if key not in inserted:
+                continue
+            for child in getattr(r, rel_name): # avoid explicitly name the relashionship
+                setattr(child, fk_attr, inserted[key]) # avoid explicitly name the key
+                all_children.append(child)
 
     if all_children:
         child_constraint = _get_unique_constraint(child_model)
         child_rows = [c.model_dump(exclude={'id'}) for c in all_children]
-        child_stmt = insert(child_model).values(child_rows).on_conflict_do_nothing(constraint=child_constraint.name)
-        session.exec(child_stmt)
+        for i in range(0, len(child_rows), BATCH_SIZE):
+            child_stmt = insert(child_model).values(child_rows[i:i + BATCH_SIZE]).on_conflict_do_nothing(constraint=child_constraint.name)
+            session.exec(child_stmt)
 
     session.commit()
 

@@ -10,3 +10,7 @@ from managers.copernicus.copernicus_endpoints import get_era5, copernicus_client
 from managers.eumet.eumet_client import EumetClient
 from managers.eumet.eumet_endpoints import get_sarah3, eumet_client
 # from managers.eumet.eumet_parser import parse_irradiance
+
+from managers.jao.jao_client import JaoClient, JaoRejected
+from managers.jao.jao_endpoints import get_binding_cnecs, jao_client
+# from managers.jao.jao_parser import parse_binding_cnecs

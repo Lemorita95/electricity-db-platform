@@ -8,11 +8,11 @@ from collections.abc import Iterator
 from master.db.connection import engine
 from master.db.queries import upsert_timeseries, get_timestamps, upsert_graph
 from master.db.models import Price, Demand, ProductionResource, Weather, \
-    CrossBorderCapacity, ZonePhysicalFlow, EicCode
+    CrossBorderCapacity, ZonePhysicalFlow, EicCode, BindingCnec
 
 from managers.config import NORDICS_CODES, LINKS
 from managers import get_price, get_demand, get_generation_units, get_era5, \
-    get_cross_border_capacity, get_zone_physical_flow, get_eic_code
+    get_cross_border_capacity, get_zone_physical_flow, get_eic_code, get_binding_cnecs
 
 
 @dataclass(frozen=True)
@@ -34,6 +34,7 @@ SOURCES: dict[str, Source] = {
     'zone_physical_flow': Source(ZonePhysicalFlow, get_zone_physical_flow, upsert_timeseries, keys=LINKS),
     'copernicus': Source(Weather, get_era5, upsert_timeseries, fetch_kind='range', keys=NORDICS_CODES),
     'eic_codes': Source(EicCode, get_eic_code, upsert_timeseries, fetch_kind='cursor', keys={'ALL': {}}),
+    'jao_binding_cnec': Source(BindingCnec, get_binding_cnecs, upsert_graph, fetch_kind='range', keys={'NORDIC': {}}),
 }
 
 
@@ -54,9 +55,9 @@ def _get_missing_ranges(key, start, end, src) -> list[dict]:
 def _as_batches(result):
     '''an iterator must yield lists of records (one list per batch); anything else is a single batch'''
     if isinstance(result, Iterator):
-        yield from result
+        yield from result # for example: get_price, get_zone_physical_flow
     else:
-        yield result
+        yield result # for example: get_generation_units
 
 
 def _fetch_range(key, start, end, src, cb):

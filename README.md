@@ -40,6 +40,15 @@ Only the platform layer
 Platform layer + infra
 > % make up-all
 
+## Sources
+
+### JAO Nordic binding CNECs (`jao_binding_cnec`)
+From JAO's Nordic publication tool, *Shadow Price & Flow_FB* page, binding CNECs only (shadow price > 0).
+- `binding_cnec`: one row per binding CNEC per MTU, with shadow price, RAM, Fmax, Fref and flow after market coupling. `zone` is always `NORDIC`.
+- `cnec_ptdf`: the CNEC's PTDF for each bidding zone and virtual HVDC hub (`SE3`, `SE3_FS`, …), zeros included, joined on `cnec_id`.
+- One request per hour, sent sequentially at most once a second, as JAO's API guide asks. Recent business days are fetched only once JAO's monitoring endpoint reports them as `Received`.
+- History starts 2024-10-29T23:00Z. Backfill one month per sync, and contact JAO before loading months or years of history; run such loads outside the morning publication window.
+
 ## To add a new source
 
 ### from a new client
