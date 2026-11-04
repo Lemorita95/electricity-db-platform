@@ -1,5 +1,6 @@
 import json
 from datetime import date, datetime, time, timedelta, timezone
+from functools import cache
 from typing import Iterator
 from zoneinfo import ZoneInfo
 
@@ -11,7 +12,10 @@ from managers.jao.jao_parser import parse_binding_cnecs
 from managers.chunks import chunk_by_period
 
 
-jao_client = JaoClient()
+@cache
+def get_jao_client() -> JaoClient:
+    return JaoClient()
+
 
 MARKET_TZ = ZoneInfo('Europe/Stockholm')
 READINESS_DAYS = 2  # business days older than this are past publication
@@ -37,7 +41,7 @@ def _publication_status(day: date) -> str:
     cfg = QUERY_CONFIGS['jao_binding_cnec']
     day_start = datetime.combine(day, time(), MARKET_TZ)
     day_end = datetime.combine(day + timedelta(days=1), time(), MARKET_TZ)
-    body = jao_client.monitoring(_iso_utc(day_start), _iso_utc(day_end))
+    body = get_jao_client().monitoring(_iso_utc(day_start), _iso_utc(day_end))
     for entry in body.get('data') or []:
         if entry.get('fileType') == cfg['monitoring_file_type']:
             return entry.get('status', 'unknown')
@@ -75,7 +79,7 @@ def get_binding_cnecs(key: str, start: datetime, end: datetime, progress_callbac
             'Filter': json.dumps(cfg['filter']),
             'Take': cfg['take'],
         }
-        body = jao_client.get(cfg['dataset'], params)
+        body = get_jao_client().get(cfg['dataset'], params)
         rows = body.get('data') or []
         total = body.get('totalRowsWithFilter', len(rows))
         if total > len(rows):

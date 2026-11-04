@@ -77,7 +77,7 @@ def test_get_binding_cnecs_requests_one_hour_at_a_time(payload):
         calls.append(params)
         return payload
 
-    with mock.patch.object(je.jao_client, "get", side_effect=fake_get):
+    with mock.patch.object(je.get_jao_client(), "get", side_effect=fake_get):
         batches = list(je.get_binding_cnecs(
             "NORDIC", datetime(2026, 3, 10, 10, tzinfo=timezone.utc), datetime(2026, 3, 10, 12, tzinfo=timezone.utc)
         ))
@@ -102,8 +102,8 @@ def test_get_binding_cnecs_stops_at_a_day_not_yet_received(payload):
 
     messages = []
     with mock.patch.object(je, "_utc_now", return_value=datetime(2026, 11, 4, 12, tzinfo=timezone.utc)), \
-         mock.patch.object(je.jao_client, "get", return_value=payload), \
-         mock.patch.object(je.jao_client, "monitoring", side_effect=fake_monitoring):
+         mock.patch.object(je.get_jao_client(), "get", return_value=payload), \
+         mock.patch.object(je.get_jao_client(), "monitoring", side_effect=fake_monitoring):
         batches = list(je.get_binding_cnecs(
             "NORDIC", datetime(2026, 11, 3, 22, tzinfo=timezone.utc), datetime(2026, 11, 4, 2, tzinfo=timezone.utc),
             progress_callback=messages.append,

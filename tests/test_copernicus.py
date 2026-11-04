@@ -62,7 +62,8 @@ def test_get_era5_builds_expected_request():
         captured["request"] = request
         return mock.Mock()
 
-    with mock.patch.object(ce.copernicus_client, "retrieve", side_effect=fake_retrieve), \
+    fake_client = mock.Mock(retrieve=mock.Mock(side_effect=fake_retrieve))
+    with mock.patch.object(ce, "get_copernicus_client", return_value=fake_client), \
          mock.patch.object(ce, "parse_weather", return_value=[]):
         list(ce.get_era5("SE3", datetime(2025, 6, 1), datetime(2025, 6, 2)))
 
@@ -70,14 +71,20 @@ def test_get_era5_builds_expected_request():
     assert captured["request"]["location"]["latitude"] == NORDICS_CODES["SE3"]["lat"]
 
 
-def test_client_retrieve_returns_cdsapi_result():
+@pytest.fixture
+def fake_cdsapi():
+    with mock.patch("managers.copernicus.copernicus_client.cdsapi.Client") as client_cls:
+        yield client_cls
+
+
+def test_client_retrieve_returns_cdsapi_result(fake_cdsapi):
     client = CopernicusClient()
     sentinel = mock.Mock()
     client._client.retrieve.return_value = sentinel
     assert client.retrieve("dataset", {}) is sentinel
 
 
-def test_client_retrieve_raises_on_non_retryable_error():
+def test_client_retrieve_raises_on_non_retryable_error(fake_cdsapi):
     client = CopernicusClient()
     client._client.retrieve.side_effect = ValueError("malformed request")
     with pytest.raises(ValueError):

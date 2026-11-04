@@ -1,5 +1,6 @@
 from datetime import datetime
 from concurrent.futures import ThreadPoolExecutor, as_completed
+from functools import cache
 from typing import Iterator
 
 from managers.config import NORDICS_CODES, QUERY_CONFIGS
@@ -9,7 +10,11 @@ from managers.eumet.eumet_client import EumetClient
 from managers.eumet.eumet_parser import parse_irradiance
 from managers.chunks import chunk_by_period, display
 
-eumet_client = EumetClient()
+
+@cache
+def get_eumet_client() -> EumetClient:
+    return EumetClient()
+
 
 SPATIAL_RESOLUTION = 0.05
 MAX_WORKERS = 15
@@ -40,7 +45,7 @@ def _fetch(collection, dtstart: datetime, dtend: datetime, bbox: str, var_type: 
 
 def get_sarah3(zone: str, start: datetime, end: datetime, progress_callback=None) -> Iterator[list[Irradiance]]:
     '''yields one list per 30-day chunk'''
-    collection = eumet_client.get_collection(cfg['collectionID'])
+    collection = get_eumet_client().get_collection(cfg['collectionID'])
     bbox = _point_bbox(zone)
     chunks = chunk_by_period(start, end, '30d')
 

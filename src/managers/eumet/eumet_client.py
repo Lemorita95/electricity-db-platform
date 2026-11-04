@@ -19,8 +19,9 @@ class EumetClient:
         self._conn_semaphore = threading.Semaphore(MAX_CONNECTIONS)
         self.monitor = RateMonitor(window_seconds=60)
 
-        self._token = self._init_token()
-        self.datastore = eumdac.DataStore(self._token)
+        # acquired on first request, so building the client needs no credentials or network
+        self._token = None
+        self.datastore = None
 
         self._start_watchdog()
 
@@ -39,10 +40,14 @@ class EumetClient:
         return token
 
     def _refresh_token_if_needed(self):
-        expiry = self._token.expiration.timestamp()
-        if time.time() >= expiry - TOKEN_REFRESH_SLACK:
-            self._token = self._init_token()
-            self.datastore = eumdac.DataStore(self._token)
+        if self._token is not None:
+            expiry = self._token.expiration.timestamp()
+            if time.time() < expiry - TOKEN_REFRESH_SLACK:
+                return
+        refreshing = self._token is not None
+        self._token = self._init_token()
+        self.datastore = eumdac.DataStore(self._token)
+        if refreshing:
             self._status_callback("[eumet] token refreshed")
 
     # ------------------------------------------------------------------

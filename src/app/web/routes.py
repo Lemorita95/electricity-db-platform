@@ -12,7 +12,7 @@ from master.db.models import Price, Demand, Weather, ProductionResource, CrossBo
 from master.db.queries import fetch_timeseries, fetch_graph
 from managers.config import NORDICS_CODES, LINKS
 from managers.sync import sync, SOURCES
-from managers import copernicus_client, entsoe_client
+from managers import get_copernicus_client, get_entsoe_client
 
 
 BASE = Path(__file__).resolve().parent
@@ -176,12 +176,17 @@ def trigger_fetch(source: str, start: datetime | None = None, end: datetime | No
     return {"status": "started", "source": source}
 
 
+def _client_rate(get_client) -> int:
+    # a client nobody has used yet has made no requests; don't build one just to report that
+    return get_client().monitor.rate if get_client.cache_info().currsize else 0
+
+
 @router.get("/api/fetch/status")
 def fetch_status():
     return {
         **fetch_status_map,
         "rates": {
-            "entsoe": entsoe_client.monitor.rate,
-            "copernicus": copernicus_client.monitor.rate,
+            "entsoe": _client_rate(get_entsoe_client),
+            "copernicus": _client_rate(get_copernicus_client),
         },
     }

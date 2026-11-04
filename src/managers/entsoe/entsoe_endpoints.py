@@ -1,4 +1,5 @@
 from datetime import datetime
+from functools import cache
 from typing import Iterator
 import requests
 import xml.etree.ElementTree as ET
@@ -13,18 +14,20 @@ from managers.entsoe.entsoe_parser import parse_price, parse_demand, parse_gener
 from managers.chunks import chunk_by_period, display
 
 
-entsoe_client = EntsoClient()
+@cache
+def get_entsoe_client() -> EntsoClient:
+    return EntsoClient()
 
 
 def _fetch(params, parse_fn, zone):
-    return parse_fn(entsoe_client.get(params), zone)
+    return parse_fn(get_entsoe_client().get(params), zone)
 
 
 def _paginate(params, parse_fn, zone):
     all_results = []
     offset = 0
     while True:
-        results = parse_fn(entsoe_client.get({**params, 'offset': offset}), zone)
+        results = parse_fn(get_entsoe_client().get({**params, 'offset': offset}), zone)
         all_results.extend(results)
         if len(results) < 100:
             break

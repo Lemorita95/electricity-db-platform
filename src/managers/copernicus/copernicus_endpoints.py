@@ -1,5 +1,6 @@
 from copy import deepcopy
 from datetime import datetime
+from functools import cache
 from typing import Iterator
 
 from managers.config import NORDICS_CODES, QUERY_CONFIGS
@@ -10,7 +11,10 @@ from managers.copernicus.copernicus_parser import parse_weather
 from managers.chunks import chunk_by_period, display
 
 
-copernicus_client = CopernicusClient()
+@cache
+def get_copernicus_client() -> CopernicusClient:
+    return CopernicusClient()
+
 cfg = QUERY_CONFIGS['copernicus']
 
 
@@ -35,5 +39,5 @@ def get_era5(zone: str, start: datetime, end: datetime, progress_callback=None) 
             )
 
         request = _build_request(zone, chunk_start, chunk_end)
-        results = copernicus_client.retrieve(cfg['dataset'], request)
+        results = get_copernicus_client().retrieve(cfg['dataset'], request)
         yield parse_weather(results, zone)
