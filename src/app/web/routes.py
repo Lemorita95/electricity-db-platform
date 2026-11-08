@@ -194,7 +194,7 @@ def cancel_fetch(source: str):
 
 def _client_rate(get_client) -> int:
     # a client nobody has used yet has made no requests; don't build one just to report that
-    return get_client().monitor.rate if get_client.cache_info().currsize else 0
+    return get_client().monitor.rate if get_client.created() else 0
 
 
 @router.get("/api/fetch/status")

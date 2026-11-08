@@ -38,6 +38,9 @@ services:
         condition: service_completed_successfully
     networks:
       - electricity-network
+    dns:
+      - 1.1.1.1
+      - 8.8.8.8
 
 networks:
   electricity-network:

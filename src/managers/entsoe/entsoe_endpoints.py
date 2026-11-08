@@ -1,5 +1,4 @@
 from datetime import datetime
-from functools import cache
 from typing import Iterator
 import requests
 import xml.etree.ElementTree as ET
@@ -13,11 +12,10 @@ from managers.entsoe.entsoe_parser import parse_price, parse_demand, parse_gener
     parse_dc_link_transfer_limit, parse_eic_code, parse_zone_physical_flow, parse_generation, \
     parse_wind_solar_forecast, parse_load_forecast, parse_hydro_reservoir
 from managers.chunks import chunk_by_period, display
+from managers.shared import shared
 
 
-@cache
-def get_entsoe_client() -> EntsoClient:
-    return EntsoClient()
+get_entsoe_client = shared(EntsoClient)
 
 
 def _fetch(params, parse_fn, zone):
