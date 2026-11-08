@@ -1,6 +1,5 @@
 import json
 from datetime import date, datetime, time, timedelta, timezone
-from functools import cache
 from typing import Iterator
 from zoneinfo import ZoneInfo
 
@@ -10,11 +9,10 @@ from managers.config import QUERY_CONFIGS
 from managers.jao.jao_client import JaoClient
 from managers.jao.jao_parser import parse_binding_cnecs, parse_fb_monitoring
 from managers.chunks import chunk_by_period
+from managers.shared import shared
 
 
-@cache
-def get_jao_client() -> JaoClient:
-    return JaoClient()
+get_jao_client = shared(JaoClient)
 
 
 MARKET_TZ = ZoneInfo('Europe/Stockholm')

@@ -4,7 +4,7 @@ Basic tests for src/managers/copernicus/* — normal case only. No network.
 import csv
 import io
 import zipfile
-from datetime import datetime
+from datetime import datetime, timezone
 from unittest import mock
 
 from managers.copernicus import copernicus_endpoints as ce
@@ -51,7 +51,7 @@ def test_get_era5_builds_expected_request():
     fake_client = mock.Mock(retrieve=mock.Mock(side_effect=fake_retrieve))
     with mock.patch.object(ce, "get_copernicus_client", return_value=fake_client), \
          mock.patch.object(ce, "parse_weather", return_value=[]):
-        list(ce.get_era5("SE3", datetime(2025, 6, 1), datetime(2025, 6, 2)))
+        list(ce.get_era5("SE3", datetime(2025, 6, 1, tzinfo=timezone.utc), datetime(2025, 6, 2, tzinfo=timezone.utc)))
 
     assert captured["dataset"] == QUERY_CONFIGS["copernicus"]["dataset"]
     assert captured["request"]["location"]["latitude"] == NORDICS_CODES["SE3"]["lat"]
