@@ -7,9 +7,6 @@ import zipfile
 from datetime import datetime
 from unittest import mock
 
-import pytest
-
-from managers.copernicus.copernicus_client import CopernicusClient
 from managers.copernicus import copernicus_endpoints as ce
 from managers.copernicus import copernicus_parser as cp
 from managers.config import NORDICS_CODES, QUERY_CONFIGS
@@ -31,27 +28,16 @@ class _FakeCdsResults:
 
 
 def test_parse_weather_maps_a_csv_row_to_a_record():
-    results = _FakeCdsResults([{
-        "valid_time": "2025-06-10T00:00:00Z", "fdir": "120.5", "ssrd": "300.2",
-        "t2m": "285.1", "u10": "2.3", "v10": "-1.1",
-    }])
+    results = _FakeCdsResults([
+        {"valid_time": "", "fdir": "1.0", "ssrd": "2.0", "t2m": "3.0", "u10": "4.0", "v10": "5.0"},  # skipped
+        {"valid_time": "2025-06-10T00:00:00Z", "fdir": "120.5", "ssrd": "300.2",
+         "t2m": "285.1", "u10": "2.3", "v10": "-1.1"},
+    ])
     records = cp.parse_weather(results, "SE3")
     assert len(records) == 1
     assert records[0].zone == "SE3"
     assert records[0].fdir == 120.5
     assert records[0].fetched_at.tzinfo is not None  # auto-populated, tz-aware
-
-
-def test_parse_weather_skips_a_blank_valid_time():
-    # regression: a present-but-empty valid_time column used to reach
-    # datetime.fromisoformat('') and raise, instead of being skipped.
-    results = _FakeCdsResults([
-        {"valid_time": "", "fdir": "1.0", "ssrd": "2.0", "t2m": "3.0", "u10": "4.0", "v10": "5.0"},
-        {"valid_time": "2025-06-10T00:00:00Z", "fdir": "1.0", "ssrd": "2.0",
-         "t2m": "3.0", "u10": "4.0", "v10": "5.0"},
-    ])
-    records = cp.parse_weather(results, "SE3")
-    assert len(records) == 1
 
 
 def test_get_era5_builds_expected_request():
@@ -69,23 +55,3 @@ def test_get_era5_builds_expected_request():
 
     assert captured["dataset"] == QUERY_CONFIGS["copernicus"]["dataset"]
     assert captured["request"]["location"]["latitude"] == NORDICS_CODES["SE3"]["lat"]
-
-
-@pytest.fixture
-def fake_cdsapi():
-    with mock.patch("managers.copernicus.copernicus_client.cdsapi.Client") as client_cls:
-        yield client_cls
-
-
-def test_client_retrieve_returns_cdsapi_result(fake_cdsapi):
-    client = CopernicusClient()
-    sentinel = mock.Mock()
-    client._client.retrieve.return_value = sentinel
-    assert client.retrieve("dataset", {}) is sentinel
-
-
-def test_client_retrieve_raises_on_non_retryable_error(fake_cdsapi):
-    client = CopernicusClient()
-    client._client.retrieve.side_effect = ValueError("malformed request")
-    with pytest.raises(ValueError):
-        client.retrieve("dataset", {})

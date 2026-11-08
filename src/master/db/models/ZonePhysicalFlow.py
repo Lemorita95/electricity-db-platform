@@ -13,7 +13,7 @@ class ZonePhysicalFlow(SQLModel, table=True):
     For DC links, the values refer to the sending end, unless specified otherwise in the explanatory text accompanying the data publication (some TSOs publish mid-point values). The flow at the receiving end will be lower, and the difference is equal to the transmission loss. See also chapter 3.5 Transmission infrastructure.
     For AC links, losses are deemed as not significant.
     '''
-    __tablename__ = "zone_physical_flows"
+    __tablename__ = "zone_physical_flow"
 
     id: Optional[int] = Field(default=None, primary_key=True)
     zone: str
@@ -30,5 +30,5 @@ class ZonePhysicalFlow(SQLModel, table=True):
     )
 
     __table_args__ = (
-        UniqueConstraint('zone', 'timestamp', name='uq_zone_physical_flows_zone_timestamp'),
+        UniqueConstraint('zone', 'timestamp', name='uq_zone_physical_flow_zone_timestamp'),
     )

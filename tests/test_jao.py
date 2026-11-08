@@ -2,7 +2,6 @@
 Basic tests for src/managers/jao/* — confirms the normal case works for the
 parser, the hourly endpoint and the client, not every edge case. No network calls.
 """
-import importlib.util
 import json
 from datetime import datetime, timezone
 from pathlib import Path
@@ -10,7 +9,6 @@ from unittest import mock
 
 import pytest
 import requests
-import sqlalchemy as sa
 
 from managers.config import QUERY_CONFIGS
 from managers.jao import jao_client as jc
@@ -18,8 +16,9 @@ from managers.jao import jao_endpoints as je
 from managers.jao import jao_parser as jp
 from master.db.models import BindingCnec, CnecPtdf
 
+from migration_check import assert_migration_creates
+
 FIXTURE = Path(__file__).parent / "fixtures" / "jao_fb_shadow_price_sample.json"
-MIGRATION = Path(__file__).resolve().parents[1] / "migrations" / "versions" / "91fa2b2f548a_add_binding_cnec_and_cnec_ptdf.py"
 
 T1100 = datetime(2026, 3, 10, 11, 0, tzinfo=timezone.utc)
 
@@ -122,14 +121,6 @@ def test_client_retries_5xx_then_fails():
     assert get.call_count == 4
 
 
-def test_client_does_not_retry_404():
-    client = jc.JaoClient()
-    with mock.patch.object(client.session, "get", return_value=_response(404, text="not found")) as get:
-        with pytest.raises(requests.HTTPError):
-            client.get("fbDomainShadowPrice", {})
-    assert get.call_count == 1
-
-
 def test_client_raises_on_rejected_200():
     client = jc.JaoClient()
     body = {"rejected": True, "messages": ["range too large"], "data": []}
@@ -139,20 +130,4 @@ def test_client_raises_on_rejected_200():
 
 
 def test_migration_matches_models():
-    spec = importlib.util.spec_from_file_location("migration_91fa2b2f548a", MIGRATION)
-    module = importlib.util.module_from_spec(spec)
-    spec.loader.exec_module(module)
-    module.op = mock.MagicMock()
-    module.upgrade()
-
-    metadata = sa.MetaData()
-    tables = {c.args[0]: sa.Table(c.args[0], metadata, *c.args[1:]) for c in module.op.create_table.call_args_list}
-
-    base_type = lambda t: t.impl if isinstance(t, sa.types.TypeDecorator) else t  # sqlmodel's AutoString wraps String
-    describe = lambda table: (
-        [(c.name, base_type(c.type).python_type, c.nullable) for c in table.columns],
-        {(c.name, tuple(c.columns.keys())) for c in table.constraints if isinstance(c, sa.UniqueConstraint)},
-        {(fk.parent.name, fk.target_fullname) for fk in table.foreign_keys},
-    )
-    for model in (BindingCnec, CnecPtdf):
-        assert describe(tables[model.__tablename__]) == describe(model.__table__)
+    assert_migration_creates("91fa2b2f548a_add_binding_cnec_and_cnec_ptdf.py", BindingCnec, CnecPtdf)

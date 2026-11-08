@@ -5,8 +5,8 @@ from datetime import date, datetime, timedelta
 
 from managers.config import QUERY_CONFIGS
 from master.db.models import Price, Demand, ProductionResource, GeneratingUnit, \
-    CrossBorderCapacity, ZonePhysicalFlow, EicCode
-from master.db.queries import RESOLUTION_MAP
+    DcLinkTransferLimit, ZonePhysicalFlow, EicCode, Generation, WindSolarForecast, LoadForecast, HydroReservoir
+from master.db.queries import RESOLUTION_MAP, shift
 
 
 RESOLUTION_STEP = {
@@ -45,25 +45,39 @@ def _expand_points(points: list[ET.Element], ns: dict, start: datetime, step: ti
 
     Not valid for A02/A04/A05 (independent readings / breakpoint ramps) — none of the
     business processes we parse today declare those curveTypes.
+
+    Steps of a day or more (P7D reservoirs) are counted in market time, see `shift`.
     '''
     expanded = []
     for i, point in enumerate(points):
         pos = int(point.find('ns:position', ns).text)
         value = float(point.find(value_tag, ns).text)
-        block_start = start + step * (pos - 1)
 
         if i + 1 < len(points):
             next_pos = int(points[i + 1].find('ns:position', ns).text)
-            block_end = start + step * (next_pos - 1)
+            block_end = shift(start, step, next_pos - 1)
         else:
             block_end = end
 
-        t = block_start
+        n = pos - 1
+        t = shift(start, step, n)
         while t < block_end:
             expanded.append((t, value))
-            t += step
+            n += 1
+            t = shift(start, step, n)
 
     return expanded
+
+
+def _period_values(ts: ET.Element, ns: dict, value_tag: str):
+    '''yields (timestamp, resolution, value) for every Period of a TimeSeries'''
+    for period in ts.findall('ns:Period', ns):
+        resolution = period.find('ns:resolution', ns).text
+        start = datetime.fromisoformat(period.find('ns:timeInterval/ns:start', ns).text.replace('Z', '+00:00'))
+        end = datetime.fromisoformat(period.find('ns:timeInterval/ns:end', ns).text.replace('Z', '+00:00'))
+        points = period.findall('ns:Point', ns)
+        for timestamp, value in _expand_points(points, ns, start, _resolution_step(resolution), end, value_tag):
+            yield timestamp, resolution, value
 
 
 def parse_price(root: ET.Element, zone: str) -> list[Price]:
@@ -96,26 +110,64 @@ def parse_price(root: ET.Element, zone: str) -> list[Price]:
 def parse_demand(root: ET.Element, zone: str) -> list[Demand]:
     cfg = QUERY_CONFIGS['demand']
     ns = {'ns': cfg['namespace']}
+    return [
+        Demand(zone=zone, timestamp=timestamp, resolution=resolution, quantity=quantity, unit=cfg['unit'])
+        for ts in root.findall('ns:TimeSeries', ns)
+        for timestamp, resolution, quantity in _period_values(ts, ns, cfg['value_tag'])
+    ]
+
+
+def parse_generation(root: ET.Element, zone: str) -> list[Generation]:
+    '''
+    one TimeSeries per production type; pumped storage also has a consumption series,
+    which carries outBiddingZone_Domain instead of inBiddingZone_Domain
+    '''
+    cfg = QUERY_CONFIGS['generation']
+    ns = {'ns': cfg['namespace']}
     records = []
-
     for ts in root.findall('ns:TimeSeries', ns):
-        for period in ts.findall('ns:Period', ns):  # loop all periods
-            resolution = period.find('ns:resolution', ns).text
-            start = datetime.fromisoformat(period.find('ns:timeInterval/ns:start', ns).text.replace('Z', '+00:00'))
-            end = datetime.fromisoformat(period.find('ns:timeInterval/ns:end', ns).text.replace('Z', '+00:00'))
-            step = _resolution_step(resolution)
-
-            points = period.findall('ns:Point', ns)
-            for timestamp, quantity in _expand_points(points, ns, start, step, end, cfg['value_tag']):
-                records.append(Demand(
-                    zone=zone,
-                    timestamp=timestamp,
-                    resolution=resolution,
-                    quantity=quantity,
-                    unit=cfg['unit']
-                ))
-
+        psr_type = _text(ts.find('ns:MktPSRType/ns:psrType', ns))
+        direction = 'consumption' if ts.find('ns:outBiddingZone_Domain.mRID', ns) is not None else 'generation'
+        records.extend(
+            Generation(zone=zone, psr_type=psr_type, direction=direction, timestamp=timestamp,
+                       resolution=resolution, quantity=quantity, unit=cfg['unit'])
+            for timestamp, resolution, quantity in _period_values(ts, ns, cfg['value_tag'])
+        )
     return records
+
+
+def parse_wind_solar_forecast(root: ET.Element, zone: str) -> list[WindSolarForecast]:
+    cfg = QUERY_CONFIGS['wind_solar_forecast']
+    ns = {'ns': cfg['namespace']}
+    records = []
+    for ts in root.findall('ns:TimeSeries', ns):
+        psr_type = _text(ts.find('ns:MktPSRType/ns:psrType', ns))
+        records.extend(
+            WindSolarForecast(zone=zone, psr_type=psr_type, timestamp=timestamp,
+                              resolution=resolution, quantity=quantity, unit=cfg['unit'])
+            for timestamp, resolution, quantity in _period_values(ts, ns, cfg['value_tag'])
+        )
+    return records
+
+
+def parse_load_forecast(root: ET.Element, zone: str) -> list[LoadForecast]:
+    cfg = QUERY_CONFIGS['load_forecast']
+    ns = {'ns': cfg['namespace']}
+    return [
+        LoadForecast(zone=zone, timestamp=timestamp, resolution=resolution, quantity=quantity, unit=cfg['unit'])
+        for ts in root.findall('ns:TimeSeries', ns)
+        for timestamp, resolution, quantity in _period_values(ts, ns, cfg['value_tag'])
+    ]
+
+
+def parse_hydro_reservoir(root: ET.Element, zone: str) -> list[HydroReservoir]:
+    cfg = QUERY_CONFIGS['hydro_reservoir']
+    ns = {'ns': cfg['namespace']}
+    return [
+        HydroReservoir(zone=zone, timestamp=timestamp, resolution=resolution, quantity=quantity, unit=cfg['unit'])
+        for ts in root.findall('ns:TimeSeries', ns)
+        for timestamp, resolution, quantity in _period_values(ts, ns, cfg['value_tag'])
+    ]
 
 
 def parse_generation_units(root: ET.Element, zone: str) -> list[ProductionResource]:
@@ -158,8 +210,8 @@ def parse_generation_units(root: ET.Element, zone: str) -> list[ProductionResour
     return records
 
 
-def parse_cross_border_capacity(root: ET.Element, zone: str) -> list[CrossBorderCapacity]:
-    cfg = QUERY_CONFIGS['cross_border_capacity']
+def parse_dc_link_transfer_limit(root: ET.Element, zone: str) -> list[DcLinkTransferLimit]:
+    cfg = QUERY_CONFIGS['dc_link_transfer_limit']
     ns = {'ns': cfg['namespace']}
     records = []
 
@@ -176,7 +228,7 @@ def parse_cross_border_capacity(root: ET.Element, zone: str) -> list[CrossBorder
 
             points = period.findall('ns:Point', ns)
             for timestamp, quantity in _expand_points(points, ns, start, step, end, cfg['value_tag']):
-                records.append(CrossBorderCapacity(
+                records.append(DcLinkTransferLimit(
                     zone=zone,
                     flow_destination=flow_destination,
                     flow_origin=flow_origin,

@@ -8,7 +8,7 @@ import json
 from pathlib import Path
 
 from master.db.connection import get_session
-from master.db.models import Price, Demand, Weather, ProductionResource, CrossBorderCapacity, ZonePhysicalFlow
+from master.db.models import Price, Demand, Weather, ProductionResource, DcLinkTransferLimit, ZonePhysicalFlow
 from master.db.queries import fetch_timeseries, fetch_graph
 from managers.config import NORDICS_CODES, LINKS
 from managers.sync import sync, SOURCES
@@ -92,10 +92,10 @@ def get_demand_snapshot(zone: str, start: datetime, end: datetime, session: Sess
     return [{"timestamp": r.timestamp.isoformat(), "quantity": r.quantity} for r in records if r.quantity is not None]
 
 
-@router.get("/api/capacity")
-def get_capacity_snapshot(link: str, start: datetime, end: datetime, session: Session = Depends(get_session)):
+@router.get("/api/dc_link_transfer_limit")
+def get_dc_link_transfer_limit_snapshot(link: str, start: datetime, end: datetime, session: Session = Depends(get_session)):
     validate_range(start, end)
-    records = fetch_timeseries(session, CrossBorderCapacity, link, start, end)
+    records = fetch_timeseries(session, DcLinkTransferLimit, link, start, end)
     return [{"timestamp": r.timestamp.isoformat(), "quantity": r.quantity} for r in records if r.quantity is not None]
 
 

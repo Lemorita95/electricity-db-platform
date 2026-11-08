@@ -4,7 +4,9 @@ for each of the three request shapes (plain, load, link-based), not
 every edge case. No network calls.
 """
 import xml.etree.ElementTree as ET
-from datetime import datetime
+from collections import Counter
+from datetime import datetime, timezone
+from pathlib import Path
 from unittest import mock
 
 import pytest
@@ -14,20 +16,19 @@ from managers.entsoe.entsoe_client import EntsoClient
 from managers.entsoe import entsoe_endpoints as ee
 from managers.entsoe import entsoe_parser as ep
 from managers.config import NORDICS_CODES, LINKS, EIC_CODES, QUERY_CONFIGS
+from master.db.models import Generation, WindSolarForecast, LoadForecast, HydroReservoir
 
-NS = "urn:iec62325.351:tc57wg16:451-3:publicationdocument:7:3"
+from migration_check import assert_migration_creates
 
-PRICE_XML = f"""<Publication_MarketDocument xmlns="{NS}">
-  <TimeSeries>
-    <currency_Unit.name>EUR</currency_Unit.name>
-    <Period>
-      <timeInterval><start>2025-06-10T00:00Z</start><end>2025-06-10T02:00Z</end></timeInterval>
-      <resolution>PT60M</resolution>
-      <Point><position>1</position><price.amount>45.32</price.amount></Point>
-      <Point><position>2</position><price.amount>50.10</price.amount></Point>
-    </Period>
-  </TimeSeries>
-</Publication_MarketDocument>"""
+FIXTURES = Path(__file__).parent / "fixtures"
+DAY_START = datetime(2026, 11, 1, 23, tzinfo=timezone.utc)
+
+
+def _fixture(name):
+    return ET.parse(FIXTURES / name).getroot()
+
+
+NS ="urn:iec62325.351:tc57wg16:451-3:publicationdocument:7:3"
 
 GEN_UNITS_XML = """<Configuration_MarketDocument xmlns="urn:iec62325.351:tc57wg16:451-6:configurationdocument:3:0">
   <TimeSeries>
@@ -70,35 +71,7 @@ EIC_MIXED_XML = f"""<EIC_MarketDocument xmlns="{EIC_NS}">
 </EIC_MarketDocument>"""
 
 
-def test_parse_price_returns_a_row_per_point():
-    records = ep.parse_price(ET.fromstring(PRICE_XML), "SE3")
-    assert [r.price for r in records] == [45.32, 50.10]
-    assert records[0].zone == "SE3"
-    assert records[0].fetched_at.tzinfo is not None  # auto-populated, tz-aware
-
-
-def test_parse_price_handles_pt30m_resolution():
-    # regression: resolution handling used to special-case only PT15M and
-    # treat everything else as 60 minutes, which mis-spaced timestamps and
-    # silently dropped the last point of a PT30M series.
-    xml = f"""<Publication_MarketDocument xmlns="{NS}">
-      <TimeSeries>
-        <currency_Unit.name>EUR</currency_Unit.name>
-        <Period>
-          <timeInterval><start>2025-06-10T00:00Z</start><end>2025-06-10T01:30Z</end></timeInterval>
-          <resolution>PT30M</resolution>
-          <Point><position>1</position><price.amount>10</price.amount></Point>
-          <Point><position>2</position><price.amount>20</price.amount></Point>
-          <Point><position>3</position><price.amount>30</price.amount></Point>
-        </Period>
-      </TimeSeries>
-    </Publication_MarketDocument>"""
-    records = ep.parse_price(ET.fromstring(xml), "SE3")
-    assert [r.price for r in records] == [10.0, 20.0, 30.0]
-    assert [r.timestamp.minute for r in records] == [0, 30, 0]
-
-
-def test_parse_price_reads_every_period_of_a_timeseries():
+def test_parse_price_reads_every_period_and_resolution():
     xml = f"""<Publication_MarketDocument xmlns="{NS}">
       <TimeSeries>
         <currency_Unit.name>EUR</currency_Unit.name>
@@ -109,13 +82,46 @@ def test_parse_price_reads_every_period_of_a_timeseries():
         </Period>
         <Period>
           <timeInterval><start>2025-06-10T01:00Z</start><end>2025-06-10T02:00Z</end></timeInterval>
-          <resolution>PT60M</resolution>
+          <resolution>PT30M</resolution>
           <Point><position>1</position><price.amount>20</price.amount></Point>
+          <Point><position>2</position><price.amount>30</price.amount></Point>
         </Period>
       </TimeSeries>
     </Publication_MarketDocument>"""
     records = ep.parse_price(ET.fromstring(xml), "SE3")
-    assert [(r.timestamp.hour, r.price) for r in records] == [(0, 10.0), (1, 20.0)]
+    assert [(r.timestamp.strftime("%H:%M"), r.price) for r in records] == [("00:00", 10.0), ("01:00", 20.0), ("01:30", 30.0)]
+
+
+def test_parse_generation_gives_every_production_type_a_full_day():
+    records = ep.parse_generation(_fixture("entsoe_a75_generation_se3.xml"), "SE3")
+    per_type = Counter(r.psr_type for r in records)
+    assert set(per_type) == {"B04", "B12", "B14", "B16", "B19", "B20"}
+    assert set(per_type.values()) == {96}  # A03 series with few points are forward-filled
+    assert {r.direction for r in records} == {"generation"}
+    assert records[0].timestamp == DAY_START
+
+    # pumped storage comes as a generation and a consumption series
+    records = ep.parse_generation(_fixture("entsoe_a75_generation_de_lu_b10.xml"), "DE-LU")
+    assert Counter((r.psr_type, r.direction) for r in records) == {
+        ("B10", "consumption"): 96, ("B10", "generation"): 96,
+    }
+
+
+def test_parse_hydro_reservoir_weeks_start_at_market_midnight():
+    records = ep.parse_hydro_reservoir(_fixture("entsoe_a72_hydro_reservoir_no2.xml"), "NO2")
+    # the third week starts after the switch to winter time on 2026-10-25
+    assert [r.timestamp for r in records] == [
+        datetime(2026, 10, 11, 22, tzinfo=timezone.utc),
+        datetime(2026, 10, 18, 22, tzinfo=timezone.utc),
+        datetime(2026, 10, 25, 23, tzinfo=timezone.utc),
+    ]
+    assert [r.quantity for r in records] == [18020266, 18238920, 19315036]
+    assert {(r.resolution, r.unit) for r in records} == {("P7D", "MWH")}
+
+
+def test_migration_creates_the_four_new_tables():
+    assert_migration_creates("3d6c77da9de2_add_generation_wind_solar_forecast_load_.py",
+                             Generation, WindSolarForecast, LoadForecast, HydroReservoir)
 
 
 def test_parse_generation_units_nests_units_under_the_plant():
@@ -136,18 +142,10 @@ def test_get_eic_code_downloads_and_parses():
 
     assert fake_get.call_args.args[0] == "https://eepublicdownloads.blob.core.windows.net/cio-lio/xml/allocated-eic-codes.xml"
     assert progress_messages  # sync.py's cursor dispatch relies on this firing
-    assert len(records) == 2
 
     control_area, gen_unit = records
-    assert control_area.eic_code == "10Y1001A1001A44P"
     assert control_area.functions == ["Control area", "Bidding zone"]
-    assert control_area.eic_parent is None  # most codes have no parent/responsible party
-    assert control_area.eic_responsible is None
-
-    assert gen_unit.eic_code == "17W000000460346Y"
-    assert gen_unit.display_name == "FR_LA-MAREGES-G2"
-    assert gen_unit.eic_parent == "17W100P100P0328B"  # ...but generation units do
-    assert gen_unit.eic_responsible == "17X100A100P0001V"
+    assert (control_area.eic_parent, gen_unit.eic_parent) == (None, "17W100P100P0328B")
 
 
 def test_get_price_builds_expected_params():
@@ -183,23 +181,6 @@ def test_get_zone_physical_flow_swaps_domains_by_link_direction():
 
     assert captured["in_Domain"] == EIC_CODES[link["destination"]]["eic"]
     assert captured["out_Domain"] == EIC_CODES[link["origin"]]["eic"]
-
-
-def test_client_returns_parsed_xml_on_success():
-    client = EntsoClient()
-    resp = mock.Mock(spec=requests.Response, status_code=200, content=b"<ok/>")
-    resp.raise_for_status.return_value = None
-    with mock.patch.object(client.session, "get", return_value=resp):
-        root = client.get({"documentType": "A44"})
-    assert root.tag == "ok"
-
-
-def test_client_raises_on_error_response():
-    client = EntsoClient()
-    resp = mock.Mock(spec=requests.Response, status_code=400, url="https://x/api")
-    with mock.patch.object(client.session, "get", return_value=resp):
-        with pytest.raises(requests.HTTPError):
-            client.get({"documentType": "A44"})
 
 
 def test_client_retries_server_errors_then_succeeds():

@@ -9,11 +9,14 @@ from collections.abc import Iterator
 from master.db.connection import engine
 from master.db.queries import upsert_timeseries, get_timestamps, upsert_graph
 from master.db.models import Price, Demand, ProductionResource, Weather, \
-    CrossBorderCapacity, ZonePhysicalFlow, EicCode, BindingCnec
+    DcLinkTransferLimit, ZonePhysicalFlow, EicCode, BindingCnec, Generation, WindSolarForecast, \
+    LoadForecast, HydroReservoir, FbBorderFlow
 
-from managers.config import NORDICS_CODES, LINKS
+from managers.config import NORDICS_CODES, PRICE_ZONES, HYDRO_RESERVOIR_ZONES, LINKS, DC_LINKS
 from managers import get_price, get_demand, get_generation_units, get_era5, \
-    get_cross_border_capacity, get_zone_physical_flow, get_eic_code, get_binding_cnecs
+    get_dc_link_transfer_limit, get_zone_physical_flow, get_eic_code, get_binding_cnecs, \
+    get_generation, get_wind_solar_forecast, get_load_forecast, get_hydro_reservoir, \
+    get_fb_monitoring
 
 
 @dataclass(frozen=True)
@@ -30,6 +33,15 @@ class Source:
 ENTSOE_MERGE_GAPS = timedelta(days=1)
 
 
+def upsert_by_model(session, model, records: list) -> None:
+    '''saves a batch that mixes models, each record into its own table; `model` is the one gaps are read from'''
+    by_model = {}
+    for record in records:
+        by_model.setdefault(type(record), []).append(record)
+    for record_model, batch in by_model.items():
+        upsert_timeseries(session, record_model, batch)
+
+
 def _entsoe(model, fetch_fn, keys=NORDICS_CODES) -> Source:
     return Source(model, fetch_fn, upsert_timeseries, keys=keys, merge_gaps=ENTSOE_MERGE_GAPS)
 
@@ -37,14 +49,20 @@ def _entsoe(model, fetch_fn, keys=NORDICS_CODES) -> Source:
 SOURCES: dict[str, Source] = {
     # ENDPOINT_NAME: Source(DB_MODEL, FETCH_FN, SAVE_FN, FETCH_KIND, KEYS, MERGE_GAPS)
 
-    'entsoe_price': _entsoe(Price, get_price),
+    'entsoe_price': _entsoe(Price, get_price, keys=PRICE_ZONES),
     'entsoe_demand': _entsoe(Demand, get_demand),
-    'cross_border_capacity': _entsoe(CrossBorderCapacity, get_cross_border_capacity, keys=LINKS),
+    'entsoe_generation': _entsoe(Generation, get_generation),
+    'entsoe_wind_solar_forecast': _entsoe(WindSolarForecast, get_wind_solar_forecast),
+    'entsoe_load_forecast': _entsoe(LoadForecast, get_load_forecast),
+    'entsoe_hydro_reservoir': _entsoe(HydroReservoir, get_hydro_reservoir, keys=HYDRO_RESERVOIR_ZONES),
+    'entsoe_dc_link_transfer_limit': _entsoe(DcLinkTransferLimit, get_dc_link_transfer_limit, keys=DC_LINKS),
     'zone_physical_flow': _entsoe(ZonePhysicalFlow, get_zone_physical_flow, keys=LINKS),
     'generation_units': Source(ProductionResource, get_generation_units, upsert_graph, fetch_kind='cursor'),
     'copernicus': Source(Weather, get_era5, upsert_timeseries),
     'eic_codes': Source(EicCode, get_eic_code, upsert_timeseries, fetch_kind='cursor', keys={'ALL': {}}),
     'jao_binding_cnec': Source(BindingCnec, get_binding_cnecs, upsert_graph, keys={'NORDIC': {}}),
+    # one request fills both tables; gaps are read from fb_border_flow
+    'jao_fb_monitoring': Source(FbBorderFlow, get_fb_monitoring, upsert_by_model, keys={'NORDIC': {}}),
 }
 
 

@@ -1,7 +1,7 @@
 """
 Tests for src/master/db/queries.py — the DB session is faked, so no database.
 """
-from datetime import date
+from datetime import date, datetime, timezone
 from unittest import mock
 
 from master.db import queries
@@ -37,3 +37,9 @@ def test_upsert_graph_batches_parents_and_children():
     assert tables == ["production_resource"] * 3 + ["generating_unit"] * 3
     assert records[-1].units[0].resource_id == 2499
     session.commit.assert_called_once()
+
+
+def test_weekly_rows_across_a_dst_change_leave_no_gap():
+    utc = lambda *a: datetime(*a, tzinfo=timezone.utc)
+    rows = [(utc(2026, 10, 18, 22), "P7D"), (utc(2026, 10, 25, 23), "P7D")]
+    assert queries._build_missing_ranges(utc(2026, 10, 18, 22), utc(2026, 11, 1, 23), rows) == []
