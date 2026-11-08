@@ -49,6 +49,13 @@ NORDICS_CODES: dict[str, dict] = {
     k: v for k, v in EIC_CODES.items() if k in ['SE1', 'SE2', 'SE3', 'SE4', 'DK1', 'DK2', 'FI', 'NO1', 'NO2', 'NO3', 'NO4', 'NO5']
 }
 
+# coupled neighbours whose prices pull on DK1, SE4 and FI; GB left the ENTSO-E platform after Brexit
+NEIGHBOUR_PRICE_ZONES = ['DE-LU', 'NL', 'PL', 'LT', 'EE']
+PRICE_ZONES: dict[str, dict] = {**NORDICS_CODES, **{k: EIC_CODES[k] for k in NEIGHBOUR_PRICE_ZONES}}
+
+# Denmark has no hydro reservoirs
+HYDRO_RESERVOIR_ZONES: dict[str, dict] = {k: v for k, v in NORDICS_CODES.items() if not k.startswith('DK')}
+
 connections = {
     'DK1': ['DE-AT-LU', 'DE-LU', 'DK1A', 'DK2', 'GB', 'NL', 'NO2', 'SE3'],
     'DK2': ['DE-AT-LU', 'DE-LU', 'DK1', 'NL', 'SE4'],
@@ -101,6 +108,34 @@ QUERY_CONFIGS = {
         'namespace': 'urn:iec62325.351:tc57wg16:451-6:generationloaddocument:3:0',
         'value_tag': 'ns:quantity',
         'unit': 'MAW',
+    },
+    'generation': {
+        'documentType': 'A75',
+        'processType': 'A16',
+        'namespace': 'urn:iec62325.351:tc57wg16:451-6:generationloaddocument:3:0',
+        'value_tag': 'ns:quantity',
+        'unit': 'MAW',
+    },
+    'wind_solar_forecast': {
+        'documentType': 'A69',
+        'processType': 'A01',
+        'namespace': 'urn:iec62325.351:tc57wg16:451-6:generationloaddocument:3:0',
+        'value_tag': 'ns:quantity',
+        'unit': 'MAW',
+    },
+    'load_forecast': {
+        'documentType': 'A65',
+        'processType': 'A01',
+        'namespace': 'urn:iec62325.351:tc57wg16:451-6:generationloaddocument:3:0',
+        'value_tag': 'ns:quantity',
+        'unit': 'MAW',
+    },
+    'hydro_reservoir': {
+        'documentType': 'A72',
+        'processType': 'A16',
+        'namespace': 'urn:iec62325.351:tc57wg16:451-6:generationloaddocument:3:0',
+        'value_tag': 'ns:quantity',
+        'unit': 'MWH',
     },
     'generation_units': {
         'documentType': 'A95',

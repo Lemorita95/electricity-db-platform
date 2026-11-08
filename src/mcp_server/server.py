@@ -20,6 +20,7 @@ from master.config import READONLY_USER, READONLY_PASSWORD, READONLY_DATABASE_UR
 from master.db.models import (
     Price, Demand, Weather, Irradiance, ProductionResource,
     CrossBorderCapacity, ZonePhysicalFlow, EicCode, BindingCnec, CnecPtdf,
+    Generation, WindSolarForecast, LoadForecast, HydroReservoir,
 )
 from master.db.queries import fetch_timeseries, fetch_graph
 
@@ -31,9 +32,21 @@ STATEMENT_TIMEOUT_MS = 15_000
 # dataset name -> (model, value columns returned next to timestamp/resolution, description)
 DATASETS: dict[str, tuple] = {
     'price': (Price, ['price', 'currency'],
-              "ENTSO-E 12.1.D day-ahead energy prices per bidding zone (e.g. 'SE3')."),
+              "ENTSO-E 12.1.D day-ahead energy prices per bidding zone (e.g. 'SE3'), "
+              "plus the coupled neighbours DE-LU, NL, PL, LT and EE."),
     'demand': (Demand, ['quantity', 'unit'],
                "ENTSO-E 6.1.A actual total load per bidding zone."),
+    'load_forecast': (LoadForecast, ['quantity', 'unit'],
+                      "ENTSO-E 6.1.B day-ahead total load forecast per bidding zone, MW."),
+    'generation': (Generation, ['psr_type', 'direction', 'quantity', 'unit'],
+                   "ENTSO-E 16.1.B/C actual generation per production type (psr_type B01..B20, e.g. B12 hydro "
+                   "reservoir, B14 nuclear, B19 wind onshore, B25 storage), MW. direction 'consumption' is storage "
+                   "charging (B10 pumped storage, B25)."),
+    'wind_solar_forecast': (WindSolarForecast, ['psr_type', 'quantity', 'unit'],
+                            "ENTSO-E 14.1.D day-ahead forecast, MW: psr_type B16 solar, B18 wind offshore, B19 wind onshore."),
+    'hydro_reservoir': (HydroReservoir, ['quantity', 'unit'],
+                        "ENTSO-E 16.1.D weekly reservoir filling (MWh stored) for SE1-4, NO1-5 and FI. "
+                        "One row per week (P7D), timestamp at the week's Monday midnight market time."),
     'weather': (Weather, ['fdir', 'ssrd', 'temperature_2m', 'wind_u_10m', 'wind_v_10m'],
                 "Copernicus ERA5 single-level timeseries at each zone's reference point."),
     'irradiance': (Irradiance, ['sis', 'sid', 'unit'],

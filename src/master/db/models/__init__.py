@@ -10,3 +10,7 @@ from master.db.models.ZonePhysicalFlow import ZonePhysicalFlow
 from master.db.models.EicCode import EicCode
 from master.db.models.BindingCnec import BindingCnec
 from master.db.models.CnecPtdf import CnecPtdf
+from master.db.models.Generation import Generation
+from master.db.models.WindSolarForecast import WindSolarForecast
+from master.db.models.LoadForecast import LoadForecast
+from master.db.models.HydroReservoir import HydroReservoir

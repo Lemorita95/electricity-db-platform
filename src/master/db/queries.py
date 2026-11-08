@@ -2,10 +2,14 @@ from sqlmodel import Session, select
 from sqlalchemy import UniqueConstraint, func, and_, inspect
 from sqlalchemy.orm import selectinload
 from sqlalchemy.dialects.postgresql import insert
-from datetime import date, datetime, timedelta
+from datetime import date, datetime, timedelta, timezone
+from zoneinfo import ZoneInfo
 
 
 BATCH_SIZE = 1000
+
+# ENTSO-E daily and weekly periods start at midnight market time
+MARKET_TZ = ZoneInfo('Europe/Brussels')
 
 
 RESOLUTION_MAP = {
@@ -13,7 +17,18 @@ RESOLUTION_MAP = {
     "PT30M": timedelta(minutes=30),
     "PT60M": timedelta(hours=1),
     "PT1H": timedelta(hours=1),
+    "P7D": timedelta(days=7),
 }
+
+
+def shift(ts: datetime, step: timedelta, n: int = 1) -> datetime:
+    '''
+    ts moved n steps forward. Steps of a day or more are counted in market wall-clock time,
+    so a week that spans a DST change is 167 or 169 hours long and every week starts at midnight.
+    '''
+    if step < timedelta(days=1):
+        return ts + step * n
+    return (ts.astimezone(MARKET_TZ) + step * n).astimezone(timezone.utc)
 
 
 def _get_unique_constraint(model) -> UniqueConstraint:
@@ -84,7 +99,7 @@ def _build_missing_ranges(start, end, rows):
 
     # Middle gaps
     for (current_ts, current_res), (next_ts, _) in zip(rows, rows[1:]):
-        expected_next = current_ts + RESOLUTION_MAP[current_res]
+        expected_next = shift(current_ts, RESOLUTION_MAP[current_res])
 
         if next_ts > expected_next:
             gaps.append({
@@ -94,7 +109,7 @@ def _build_missing_ranges(start, end, rows):
 
     # Trailing gap
     last_ts, last_res = rows[-1]
-    last_expected = last_ts + RESOLUTION_MAP[last_res]
+    last_expected = shift(last_ts, RESOLUTION_MAP[last_res])
 
     if last_expected < end:
         gaps.append({

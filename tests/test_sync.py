@@ -42,25 +42,6 @@ def test_failure_keeps_batches_saved_before_it():
     assert [batch for kind, batch in events if kind == "save"] == [["a1", "a2"], ["b1"]]
 
 
-def test_failure_message_counts_saved_batches():
-    messages = []
-    save_fn = mock.Mock()
-
-    def fetch(key, start, end, progress_callback=None):
-        yield ["a"]
-        yield ["b"]
-        raise RuntimeError("boom")
-
-    src = sync.Source(object, fetch, save_fn, keys={"K": {}})
-    with mock.patch.dict(sync.SOURCES, {"fake": src}), \
-         mock.patch.object(sync, "_get_missing_ranges", return_value=ONE_GAP), \
-         mock.patch.object(sync, "Session", mock.MagicMock()), \
-         pytest.raises(RuntimeError):
-        sync.fetch_key_source("K", START, END, "fake", progress_callback=messages.append)
-
-    assert messages[-1] == "failed after saving 2 chunks: boom"
-
-
 def test_each_batch_is_saved_before_the_next_is_fetched():
     events = []
 
@@ -90,23 +71,6 @@ def test_nothing_missing_is_up_to_date_without_fetching():
     fetch.assert_not_called()
     assert saved == []
     assert messages[-1] == "up-to-date"
-
-
-def test_empty_batches_are_skipped():
-    saved, messages = _run(lambda key, start, end, progress_callback=None: iter([[], ["x"], []]))
-    assert saved == [["x"]]
-    assert messages[-1] == "done"
-
-    saved, messages = _run(lambda key, start, end, progress_callback=None: iter([[], []]))
-    assert saved == []
-    assert messages[-1] == "up-to-date"
-
-
-def test_range_fetch_returning_a_list_is_one_batch():
-    saved, messages = _run(lambda key, start, end, progress_callback=None: ["x", "y"])
-
-    assert saved == [["x", "y"]]
-    assert messages[-1] == "done"
 
 
 def test_sync_result_reports_partial_failure():

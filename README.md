@@ -42,6 +42,25 @@ Platform layer + infra
 
 ## Sources
 
+### ENTSO-E prices (`entsoe_price`)
+12.1.D day-ahead prices (A44) for the 12 Nordic zones and the coupled neighbours DE-LU, NL, PL, LT and EE. GB is not on the ENTSO-E platform after Brexit.
+
+### ENTSO-E generation (`entsoe_generation`)
+16.1.B/C actual generation per production type (A75, process A16), per Nordic zone, into `generation`.
+- `psr_type` is the production type (B12 hydro reservoir, B14 nuclear, B19 wind onshore, …).
+- Storage also comes as a consumption series (marked by `outBiddingZone_Domain`), stored with `direction = 'consumption'`: B10 pumped storage (NO2, NO3, NO5) and B25 energy storage (FI).
+
+### ENTSO-E wind and solar forecast (`entsoe_wind_solar_forecast`)
+14.1.D day-ahead forecast (A69, process A01), per Nordic zone, into `wind_solar_forecast`: B16 solar, B18 wind offshore, B19 wind onshore.
+
+### ENTSO-E load forecast (`entsoe_load_forecast`)
+6.1.B day-ahead total load forecast (A65, process A01), per Nordic zone, into `load_forecast`.
+
+### ENTSO-E hydro reservoirs (`entsoe_hydro_reservoir`)
+16.1.D reservoir filling (A72, process A16) for SE1–4, NO1–5 and FI, into `hydro_reservoir`, in MWh.
+- Weekly (`P7D`): each row is a week starting Monday midnight market time (Europe/Brussels), so weeks across a DST change are 167 or 169 hours long in UTC.
+- A sync whose start is mid-week, or whose end is after the last published week, asks for that week again on each run; that is one extra request per zone.
+
 ### JAO Nordic binding CNECs (`jao_binding_cnec`)
 From JAO's Nordic publication tool, *Shadow Price & Flow_FB* page, binding CNECs only (shadow price > 0).
 - `binding_cnec`: one row per binding CNEC per MTU, with shadow price, RAM, Fmax, Fref and flow after market coupling. `zone` is always `NORDIC`.
