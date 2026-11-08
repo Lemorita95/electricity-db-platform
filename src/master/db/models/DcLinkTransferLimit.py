@@ -5,16 +5,16 @@ from sqlalchemy import UniqueConstraint, Column
 from sqlalchemy.dialects.postgresql import TIMESTAMP
 
 
-class CrossBorderCapacity(SQLModel, table=True):
+class DcLinkTransferLimit(SQLModel, table=True):
     '''
-    From API's Transmission / 11.3 Cross-Border Capacity for DC Links
+    From API's Transmission / 11.3 Cross-Border Capacity for DC Links - Intraday Transfer Limits
     In relation to direct current links, TSOs shall provide updated information on any restrictions placed on the use of available cross-border capacity including through the application of ramping restrictions or intraday transfer limits not later than one hour after the information is known to the ENTSO for Electricity.
     An intraday transfer limit means an intraday capacity limit value taking into account the technical capacity of the interconnector and the security constraints of the grid.
     Information to publish:
     1) Ramping restrictions: It should be treated as a report (figures valid for several months)
     2) intraday transfer limits: for the next day, intraday transfer limits (MW) for each border between bidding zones and per direction, (per market time unit)
     '''
-    __tablename__ = "cross_border_capacity"
+    __tablename__ = "dc_link_transfer_limit"
 
     id: Optional[int] = Field(default=None, primary_key=True)
     zone: str
@@ -31,5 +31,5 @@ class CrossBorderCapacity(SQLModel, table=True):
     )
 
     __table_args__ = (
-        UniqueConstraint('zone', 'timestamp', name='uq_cross_border_capacity_zone_timestamp'),
+        UniqueConstraint('zone', 'timestamp', name='uq_dc_link_transfer_limit_zone_timestamp'),
     )

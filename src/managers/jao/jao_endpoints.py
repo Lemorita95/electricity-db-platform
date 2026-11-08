@@ -4,11 +4,11 @@ from functools import cache
 from typing import Iterator
 from zoneinfo import ZoneInfo
 
-from master.db.models import BindingCnec
+from master.db.models import BindingCnec, FbBorderFlow, FbNetPosition
 
 from managers.config import QUERY_CONFIGS
 from managers.jao.jao_client import JaoClient
-from managers.jao.jao_parser import parse_binding_cnecs
+from managers.jao.jao_parser import parse_binding_cnecs, parse_fb_monitoring
 from managers.chunks import chunk_by_period
 
 
@@ -37,8 +37,7 @@ def _business_day(dt: datetime) -> date:
     return dt.astimezone(MARKET_TZ).date()
 
 
-def _publication_status(day: date) -> str:
-    cfg = QUERY_CONFIGS['jao_binding_cnec']
+def _publication_status(day: date, cfg: dict) -> str:
     day_start = datetime.combine(day, time(), MARKET_TZ)
     day_end = datetime.combine(day + timedelta(days=1), time(), MARKET_TZ)
     body = get_jao_client().monitoring(_iso_utc(day_start), _iso_utc(day_end))
@@ -48,12 +47,12 @@ def _publication_status(day: date) -> str:
     return 'unknown'
 
 
-def get_binding_cnecs(key: str, start: datetime, end: datetime, progress_callback=None) -> Iterator[list[BindingCnec]]:
+def _hourly(cfg_name: str, parse_fn, key: str, start: datetime, end: datetime, progress_callback=None) -> Iterator[list]:
     '''
-        binding CNECs for a single 'key' ('NORDIC'), one request and one yielded batch per hour.
+        one request and one yielded batch per hour of the cfg's dataset and filter.
         recent business days are only requested once JAO's monitoring reports them as Received.
     '''
-    cfg = QUERY_CONFIGS['jao_binding_cnec']
+    cfg = QUERY_CONFIGS[cfg_name]
     start = _as_utc(start).replace(minute=0, second=0, microsecond=0)
     end = _as_utc(end)
     windows = chunk_by_period(start, end, '1h')
@@ -63,7 +62,7 @@ def get_binding_cnecs(key: str, start: datetime, end: datetime, progress_callbac
     for i, (window_start, window_end) in enumerate(windows, 1):
         day = _business_day(window_start)
         if day >= first_checked_day and day not in ready_days:
-            status = _publication_status(day)
+            status = _publication_status(day, cfg)
             if status != 'Received':
                 if progress_callback:
                     progress_callback(f"JAO: {day.isoformat()} {status}, stopping")
@@ -87,4 +86,17 @@ def get_binding_cnecs(key: str, start: datetime, end: datetime, progress_callbac
                 f"JAO returned {len(rows)} of {total} rows for {params['FromUtc']}, raise 'take' instead of paging"
             )
 
-        yield parse_binding_cnecs(rows, key)
+        yield parse_fn(rows, key)
+
+
+def get_binding_cnecs(key: str, start: datetime, end: datetime, progress_callback=None) -> Iterator[list[BindingCnec]]:
+    '''binding CNECs for a single 'key' ('NORDIC'), one batch per hour'''
+    yield from _hourly('jao_binding_cnec', parse_binding_cnecs, key, start, end, progress_callback)
+
+
+def get_fb_monitoring(key: str, start: datetime, end: datetime, progress_callback=None) -> Iterator[list[FbBorderFlow | FbNetPosition]]:
+    '''
+        border flows and net positions for a single 'key' ('NORDIC'), one request and one mixed batch per hour;
+        sync's upsert_by_model saves each record to its own table
+    '''
+    yield from _hourly('jao_fb_monitoring', parse_fb_monitoring, key, start, end, progress_callback)

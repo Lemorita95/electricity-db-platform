@@ -5,7 +5,7 @@ from datetime import date, datetime, timedelta
 
 from managers.config import QUERY_CONFIGS
 from master.db.models import Price, Demand, ProductionResource, GeneratingUnit, \
-    CrossBorderCapacity, ZonePhysicalFlow, EicCode, Generation, WindSolarForecast, LoadForecast, HydroReservoir
+    DcLinkTransferLimit, ZonePhysicalFlow, EicCode, Generation, WindSolarForecast, LoadForecast, HydroReservoir
 from master.db.queries import RESOLUTION_MAP, shift
 
 
@@ -210,8 +210,8 @@ def parse_generation_units(root: ET.Element, zone: str) -> list[ProductionResour
     return records
 
 
-def parse_cross_border_capacity(root: ET.Element, zone: str) -> list[CrossBorderCapacity]:
-    cfg = QUERY_CONFIGS['cross_border_capacity']
+def parse_dc_link_transfer_limit(root: ET.Element, zone: str) -> list[DcLinkTransferLimit]:
+    cfg = QUERY_CONFIGS['dc_link_transfer_limit']
     ns = {'ns': cfg['namespace']}
     records = []
 
@@ -228,7 +228,7 @@ def parse_cross_border_capacity(root: ET.Element, zone: str) -> list[CrossBorder
 
             points = period.findall('ns:Point', ns)
             for timestamp, quantity in _expand_points(points, ns, start, step, end, cfg['value_tag']):
-                records.append(CrossBorderCapacity(
+                records.append(DcLinkTransferLimit(
                     zone=zone,
                     flow_destination=flow_destination,
                     flow_origin=flow_origin,

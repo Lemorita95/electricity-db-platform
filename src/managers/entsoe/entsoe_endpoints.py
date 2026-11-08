@@ -5,12 +5,12 @@ import requests
 import xml.etree.ElementTree as ET
 
 from master.db.models import Price, Demand, ProductionResource, \
-        CrossBorderCapacity, ZonePhysicalFlow, Generation, WindSolarForecast, LoadForecast, HydroReservoir
+        DcLinkTransferLimit, ZonePhysicalFlow, Generation, WindSolarForecast, LoadForecast, HydroReservoir
 
 from managers.config import EIC_CODES, NORDICS_CODES, PRICE_ZONES, QUERY_CONFIGS, LINKS
 from managers.entsoe.entsoe_client import EntsoClient
 from managers.entsoe.entsoe_parser import parse_price, parse_demand, parse_generation_units, \
-    parse_cross_border_capacity, parse_eic_code, parse_zone_physical_flow, parse_generation, \
+    parse_dc_link_transfer_limit, parse_eic_code, parse_zone_physical_flow, parse_generation, \
     parse_wind_solar_forecast, parse_load_forecast, parse_hydro_reservoir
 from managers.chunks import chunk_by_period, display
 
@@ -170,16 +170,16 @@ def get_generation_units(zone: str, start: datetime, progress_callback=None) -> 
     return _fetch(params, parse_generation_units, zone)
 
 
-def get_cross_border_capacity(key: str, start: datetime, end: datetime, progress_callback=None) -> Iterator[list[CrossBorderCapacity]]:
+def get_dc_link_transfer_limit(key: str, start: datetime, end: datetime, progress_callback=None) -> Iterator[list[DcLinkTransferLimit]]:
     '''
-        resolve cross border capacity for a single 'key' (link), yielding one list per 30-day chunk
+        resolve the intraday transfer limit of a DC link for a single 'key' (link), yielding one list per 30-day chunk
     '''
-    cfg = QUERY_CONFIGS['cross_border_capacity']
+    cfg = QUERY_CONFIGS['dc_link_transfer_limit']
     link = LINKS[key]
     chunks = chunk_by_period(start, end, '30d')
     for i, (chunk_start, chunk_end) in enumerate(chunks, 1):
         if progress_callback:
-            progress_callback(f"cross_border_capacity {i}/{len(chunks)} — {display(chunk_start)} → {display(chunk_end)}")
+            progress_callback(f"dc_link_transfer_limit {i}/{len(chunks)} — {display(chunk_start)} → {display(chunk_end)}")
         params = {
             'documentType': cfg['documentType'],
             'curveType': cfg['curveType'],
@@ -188,7 +188,7 @@ def get_cross_border_capacity(key: str, start: datetime, end: datetime, progress
             'periodStart': chunk_start.strftime('%Y%m%d%H%M'),
             'periodEnd': chunk_end.strftime('%Y%m%d%H%M'),
         }
-        yield _fetch(params, parse_cross_border_capacity, key)
+        yield _fetch(params, parse_dc_link_transfer_limit, key)
 
 
 def get_zone_physical_flow(key: str, start: datetime, end: datetime, progress_callback=None) -> Iterator[list[ZonePhysicalFlow]]:

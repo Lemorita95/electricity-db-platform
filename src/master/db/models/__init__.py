@@ -5,7 +5,7 @@ from master.db.models.Weather import Weather
 from master.db.models.Irradiance import Irradiance
 from master.db.models.ProductionResource import ProductionResource
 from master.db.models.GeneratingUnit import GeneratingUnit
-from master.db.models.CrossBorderCapacity import CrossBorderCapacity
+from master.db.models.DcLinkTransferLimit import DcLinkTransferLimit
 from master.db.models.ZonePhysicalFlow import ZonePhysicalFlow
 from master.db.models.EicCode import EicCode
 from master.db.models.BindingCnec import BindingCnec
@@ -14,3 +14,5 @@ from master.db.models.Generation import Generation
 from master.db.models.WindSolarForecast import WindSolarForecast
 from master.db.models.LoadForecast import LoadForecast
 from master.db.models.HydroReservoir import HydroReservoir
+from master.db.models.FbBorderFlow import FbBorderFlow
+from master.db.models.FbNetPosition import FbNetPosition

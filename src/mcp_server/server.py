@@ -19,8 +19,8 @@ from sqlmodel import Session, SQLModel, select
 from master.config import READONLY_USER, READONLY_PASSWORD, READONLY_DATABASE_URL
 from master.db.models import (
     Price, Demand, Weather, Irradiance, ProductionResource,
-    CrossBorderCapacity, ZonePhysicalFlow, EicCode, BindingCnec, CnecPtdf,
-    Generation, WindSolarForecast, LoadForecast, HydroReservoir,
+    DcLinkTransferLimit, ZonePhysicalFlow, EicCode, BindingCnec, CnecPtdf,
+    Generation, WindSolarForecast, LoadForecast, HydroReservoir, FbBorderFlow, FbNetPosition,
 )
 from master.db.queries import fetch_timeseries, fetch_graph
 
@@ -51,8 +51,9 @@ DATASETS: dict[str, tuple] = {
                 "Copernicus ERA5 single-level timeseries at each zone's reference point."),
     'irradiance': (Irradiance, ['sis', 'sid', 'unit'],
                    "EUMETSAT surface incoming shortwave (sis) and direct (sid) irradiance, W/m2."),
-    'cross_border_capacity': (CrossBorderCapacity, ['flow_origin', 'flow_destination', 'quantity', 'unit'],
-                              "ENTSO-E 11.3 DC link capacity. zone is a link key 'ORIGIN-DESTINATION' (e.g. 'NO2-DK1')."),
+    'dc_link_transfer_limit': (DcLinkTransferLimit, ['flow_origin', 'flow_destination', 'quantity', 'unit'],
+                               "ENTSO-E 11.3 intraday transfer limit of DC links, MW per direction. "
+                               "zone is a link key 'ORIGIN-DESTINATION' (e.g. 'DK1-NL')."),
     'zone_physical_flow': (ZonePhysicalFlow, ['flow_origin', 'flow_destination', 'quantity', 'unit'],
                            "ENTSO-E 12.1.G physical flows. zone is a link key 'ORIGIN-DESTINATION' (e.g. 'SE3-FI')."),
 }
@@ -134,6 +135,15 @@ def list_datasets() -> list[dict]:
          "value_columns": [], "description": "JAO Nordic flow-based binding CNECs per MTU (zone 'NORDIC') with "
                                             "shadow_price (EUR/MW), ram and flow_fb (MW). Their PTDFs per bidding zone "
                                             "and HVDC hub are in cnec_ptdf, joined on cnec_id. Use run_sql."},
+        {"dataset": "fb_border_flow", "table": FbBorderFlow.__tablename__,
+         "value_columns": [], "description": "JAO Nordic flow-based border rows per MTU (zone 'NORDIC'): per border "
+                                            "('SE3-SE4', 'SE4-SE4_SP') min_flow/max_flow (each extreme on its own) and "
+                                            "flow_fb, the flow after market coupling, MW. Use run_sql."},
+        {"dataset": "fb_net_position", "table": FbNetPosition.__tablename__,
+         "value_columns": [], "description": "JAO Nordic flow-based net positions per MTU (zone 'NORDIC') for each "
+                                            "bidding zone and HVDC hub: min/max_net_position and net_position after "
+                                            "market coupling, MW, positive is export (for a hub: into its real zone). "
+                                            "Use run_sql."},
     ]
     return datasets
 
