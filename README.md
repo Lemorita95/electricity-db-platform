@@ -46,6 +46,7 @@ Platform layer + infra
 From JAO's Nordic publication tool, *Shadow Price & Flow_FB* page, binding CNECs only (shadow price > 0).
 - `binding_cnec`: one row per binding CNEC per MTU, with shadow price, RAM, Fmax, Fref and flow after market coupling. `zone` is always `NORDIC`.
 - `cnec_ptdf`: the CNEC's PTDF for each bidding zone and virtual HVDC hub (`SE3`, `SE3_FS`, …), zeros included, joined on `cnec_id`.
+- Prices follow p_zone = λ − Σ shadow_price × PTDF_zone for every Nordic zone except DK1. DK1 is synchronous with continental Europe, so its PTDF on Nordic CNECs is ~0 and its price is set mostly by the Hansa/Core side (it tracks DE-LU); leave it out when estimating λ.
 - One request per hour, sent sequentially at most once a second, as JAO's API guide asks. Recent business days are fetched only once JAO's monitoring endpoint reports them as `Received`.
 - History starts 2024-10-29T23:00Z. Backfill one month per sync, and contact JAO before loading months or years of history; run such loads outside the morning publication window.
 

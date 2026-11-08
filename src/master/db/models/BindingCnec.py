@@ -17,6 +17,8 @@ class BindingCnec(SQLModel, table=True):
     zone is always 'NORDIC' so the generic range sync works; cnec_name is in the key to keep
     both copies of a CNEC in spanning-backup MTUs.
     a slot with no binding CNEC looks like a gap to the range sync and is requested again on each sync.
+    DK1 is synchronous with continental Europe: its PTDF on Nordic CNECs is ~0, so these shadow prices
+    do not explain its price (it tracks DE-LU); leave it out when estimating the slack price λ.
     '''
     __tablename__ = "binding_cnec"
 
